@@ -1,0 +1,35 @@
+# requirements.txt — Voice Technitos (Python 3.11)
+# Local ElevenLabs-style TTS app: FastAPI + uvicorn backend, pywebview GUI,
+# OmniVoice local TTS, auto model download, voice cloning library.
+
+# ── Web backend ────────────────────────────────────────────────────────────
+fastapi>=0.115.0          # REST API for the web UI
+uvicorn[standard]>=0.32.0 # ASGI server + websockets/live reload
+python-multipart>=0.0.20  # handle audio file uploads (reference.wav)
+requests>=2.32.0
+
+# ── Desktop GUI ────────────────────────────────────────────────────────────
+pywebview>=5.3.2          # wrap the FastAPI web UI in a native window
+
+# ── Local TTS (OmniVoice) ──────────────────────────────────────────────────
+# OmniVoice requires an NVIDIA GPU with CUDA 12.8+ (no CPU support without
+# custom forks). Torch is pinned below to the CUDA 12.8 build.
+torch==2.8.0+cu128
+torchaudio==2.8.0+cu128
+--extra-index-url https://download.pytorch.org/whl/cu128
+git+https://github.com/k2-fsa/OmniVoice.git  # voice cloning + voice design
+transformers>=4.47.0      # OmniVoice model backend
+accelerate>=1.2.0         # device_map support (cuda:0)
+huggingface-hub>=0.27.0   # automatic model downloads from HuggingFace
+
+# ── Audio ──────────────────────────────────────────────────────────────────
+numpy>=2.3.0
+scipy>=1.15.0
+soundfile>=0.13.0         # read/write reference.wav and generated audio
+sounddevice>=0.5.0        # live playback
+
+# ── Logging ────────────────────────────────────────────────────────────────
+loguru>=0.7.3             # logs to console and rotating file
+
+# ── Build / dev ────────────────────────────────────────────────────────────
+pyinstaller>=6.11.0       # compile into a standalone exe (frozen paths)

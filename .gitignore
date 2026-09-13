@@ -1,0 +1,7 @@
+*.ps1
+*.spec
+
+# runtime artifacts
+data/logs/
+data/output/
+/__pycache__

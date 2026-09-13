@@ -1,0 +1,16 @@
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F6F6F7;
+  --separator: #D2D2D7;
+  --text: #111113;
+  --muted: #6E6E74;
+  --accent: #111113;
+  --hover: rgba(17, 17, 19, 0.06);
+  --track: #E1E1E5;
+  --select-bg: #FFFFFF;
+  --menu-bg: #FFFFFF;
+  --menu-hover: rgba(17, 17, 19, 0.06);
+  --tag: #2563EB;
+  --btn-bg: #111113;
+  --btn-text: #FFFFFF;
+}

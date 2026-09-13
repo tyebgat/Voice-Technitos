@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Technitus</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <link rel="stylesheet" href="/gui/css/base.css">
+  <link rel="stylesheet" href="/gui/css/themes/dark.css">
+  <link rel="stylesheet" href="/gui/css/themes/light.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <span class="topbar__brand">Voice Technitus</span>
+    <nav class="topbar__actions">
+      <button id="theme-toggle" class="icon-btn" aria-label="Switch to light theme">
+        <span class="material-symbols-outlined" id="theme-icon">dark_mode</span>
+      </button>
+      <a id="github-link" class="icon-btn" href="http://github.com/tyebgat/Voice-Technitos" target="_blank" rel="noopener" aria-label="GitHub repository">
+        <svg class="github-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.694.825.576C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+        </svg>
+      </a>
+    </nav>
+  </header>
+
+  <main id="workspace" class="workspace">
+    <section class="panel panel--text">
+      <div class="editor">
+        <div id="input-text" class="text-input" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" aria-label="Text to synthesize"></div>
+      </div>
+      <footer class="right-footer">
+        <span id="word-count" class="word-count">0 words</span>
+        <button id="generate-btn" class="btn-generate">Generate speech</button>
+      </footer>
+    </section>
+
+    <div id="splitter" class="splitter" role="separator" aria-orientation="vertical" aria-label="Resize panels"></div>
+
+    <aside id="panel-side" class="panel panel--side">
+      <nav class="tabbar">
+        <button class="tab-btn" data-tab="settings">Settings</button>
+        <button class="tab-btn" data-tab="voices">Voices</button>
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+      </nav>
+
+      <section id="tab-overview" class="tab-content active">
+        <h2 class="section-label">Voice</h2>
+        <div class="voice-card">
+          <div class="voice-card__avatar">
+            <img src="/gui/assets/avatar.svg" alt="Voice avatar">
+          </div>
+          <div class="voice-card__meta">
+            <span class="voice-card__name">Aria</span>
+          </div>
+        </div>
+
+        <h2 class="section-label">Quick settings</h2>
+
+        <div class="slider-control">
+          <div class="slider-control__head">
+            <span class="slider-control__label">Speed</span>
+            <span id="speed-value" class="slider-control__value">1.0</span>
+          </div>
+          <input id="slider-speed" class="slider" type="range" min="0.5" max="4" step="0.1" value="1">
+        </div>
+
+        <div class="slider-control">
+          <div class="slider-control__head">
+            <span class="slider-control__label">Gain</span>
+            <span id="gain-value" class="slider-control__value">1.0</span>
+          </div>
+          <input id="slider-gain" class="slider" type="range" min="0.5" max="3" step="0.1" value="1">
+        </div>
+
+        <h2 class="section-label">Output format</h2>
+        <div class="dropdown" id="output-format">
+          <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
+            <span class="dropdown__value">mp3</span>
+            <span class="material-symbols-outlined dropdown__chevron">expand_more</span>
+          </button>
+          <ul class="dropdown__menu" role="listbox">
+            <li class="dropdown__item" role="option" data-value="mp3" aria-selected="true">mp3</li>
+            <li class="dropdown__item" role="option" data-value="wav">wav</li>
+            <li class="dropdown__item" role="option" data-value="flac">flac</li>
+            <li class="dropdown__item" role="option" data-value="opus">opus</li>
+            <li class="dropdown__item" role="option" data-value="ogg">ogg</li>
+          </ul>
+        </div>
+
+        <h2 class="section-label">Sample Rate</h2>
+        <div class="dropdown" id="sample-rate">
+          <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
+            <span class="dropdown__value">48 kHz</span>
+            <span class="material-symbols-outlined dropdown__chevron">expand_more</span>
+          </button>
+          <ul class="dropdown__menu" role="listbox">
+            <li class="dropdown__item" role="option" data-value="48000" aria-selected="true">48 kHz</li>
+            <li class="dropdown__item" role="option" data-value="44100">44.1 kHz</li>
+            <li class="dropdown__item" role="option" data-value="16000">16 kHz</li>
+            <li class="dropdown__item" role="option" data-value="8000">8 kHz</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="tab-voices" class="tab-content">
+        <p class="tab-placeholder">Only but chickens here</p>
+      </section>
+
+      <section id="tab-settings" class="tab-content">
+        <p class="tab-placeholder">Only but chickens here</p>
+      </section>
+    </aside>
+  </main>
+
+  <script src="/gui/js/app.js"></script>
+</body>
+</html>
