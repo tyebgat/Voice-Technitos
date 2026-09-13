@@ -18,9 +18,14 @@ torch==2.8.0+cu128
 torchaudio==2.8.0+cu128
 --extra-index-url https://download.pytorch.org/whl/cu128
 git+https://github.com/k2-fsa/OmniVoice.git  # voice cloning + voice design
-transformers>=4.47.0      # OmniVoice model backend
+transformers>=5.3.0       # OmniVoice 0.2.1 requires >=5.3.0
 accelerate>=1.2.0         # device_map support (cuda:0)
 huggingface-hub>=0.27.0   # automatic model downloads from HuggingFace
+
+# ── Local TTS (Pocket TTS) ─────────────────────────────────────────────────
+# Lightweight zero-conflict TTS (CPU, 24 kHz, zero-shot voice cloning). No
+# transformers dependency at inference; accepts numpy 2.x / torch 2.5+.
+pocket-tts>=3.1.0
 
 # ── Audio ──────────────────────────────────────────────────────────────────
 numpy>=2.3.0

@@ -6,6 +6,7 @@ html[data-theme="light"] {
   --muted: #6E6E74;
   --accent: #111113;
   --hover: rgba(17, 17, 19, 0.06);
+  --backdrop: rgba(0, 0, 0, 0.25);
   --track: #E1E1E5;
   --select-bg: #FFFFFF;
   --menu-bg: #FFFFFF;

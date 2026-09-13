@@ -1,0 +1,15 @@
+{
+  "_comment_model": "------POCKET TTS MODEL-------",
+  "language": "english",
+  "config": "",
+  "temp": null,
+  "sampler_decode_steps": 1,
+  "noise_clamp": null,
+  "eos_threshold": -4.0,
+  "quantize": false,
+  "_comment_voice": "------VOICE CLONING-------",
+  "default_voice": "hf://kyutai/tts-voices/alba-mackenna/casual.wav",
+  "truncate_voice": false,
+  "_comment_gen": "------GENERATION PARAMETERS-------",
+  "frames_after_eos": null
+}
