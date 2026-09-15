@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..800&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
   <link rel="stylesheet" href="/gui/css/base.css">
   <link rel="stylesheet" href="/gui/css/themes/dark.css">
   <link rel="stylesheet" href="/gui/css/themes/light.css">
@@ -15,13 +15,16 @@
 <body>
 
   <header class="topbar">
-    <span class="topbar__brand">Voice Technitus</span>
+    <button id="btn-credits" type="button" class="topbar__brand" aria-label="Credits">
+      <img src="/gui/assets/icon.svg" alt="" class="topbar__logo">
+      Voice Technitos
+    </button>
     <nav class="topbar__actions">
       <button id="btn-settings" class="icon-btn" aria-label="Settings">
-        <span class="material-symbols-outlined">settings</span>
+        <span class="material-symbols-rounded">settings</span>
       </button>
       <button id="theme-toggle" class="icon-btn" aria-label="Switch to light theme">
-        <span class="material-symbols-outlined" id="theme-icon">dark_mode</span>
+        <span class="material-symbols-rounded" id="theme-icon">dark_mode</span>
       </button>
       <a id="github-link" class="icon-btn" href="http://github.com/tyebgat/Voice-Technitos" target="_blank" rel="noopener" aria-label="GitHub repository">
         <svg class="github-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -37,11 +40,12 @@
         <div id="input-text" class="text-input" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" aria-label="Text to synthesize"></div>
       </div>
       <div id="player-widget" class="player-widget" hidden>
-        <button id="player-play" type="button" class="player-widget__btn" aria-label="Play">
-          <span class="material-symbols-outlined">play_arrow</span>
+        <div id="player-loading" class="barProgress"></div>
+        <button id="player-play" type="button" class="player-widget__play" aria-label="Play">
+          <span class="material-symbols-rounded">play_arrow</span>
         </button>
-        <a id="player-download" class="player-widget__btn" href="#" download aria-label="Download output">
-          <span class="material-symbols-outlined">download</span>
+        <a id="player-download" class="player-widget__download" href="#" download aria-label="Download output">
+          <span class="material-symbols-rounded">download</span>
         </a>
         <canvas id="player-wave" class="player-widget__wave" height="40"></canvas>
         <audio id="player-audio" preload="auto" hidden></audio>
@@ -57,9 +61,10 @@
 
     <aside id="panel-side" class="panel panel--side">
       <nav class="tabbar">
-        <button class="tab-btn" data-tab="settings">Settings</button>
-        <button class="tab-btn" data-tab="voices">Voices</button>
         <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="voices">Voices</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
+        <button class="tab-btn" data-tab="history">History</button>
       </nav>
 
       <section id="tab-overview" class="tab-content active">
@@ -95,7 +100,7 @@
         <div class="dropdown" id="output-format">
           <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
             <span class="dropdown__value">mp3</span>
-            <span class="material-symbols-outlined dropdown__chevron">expand_more</span>
+            <span class="material-symbols-rounded dropdown__chevron">expand_more</span>
           </button>
           <ul class="dropdown__menu" role="listbox">
             <li class="dropdown__item" role="option" data-value="mp3" aria-selected="true">mp3</li>
@@ -110,7 +115,7 @@
         <div class="dropdown" id="sample-rate">
           <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
             <span class="dropdown__value">48 kHz</span>
-            <span class="material-symbols-outlined dropdown__chevron">expand_more</span>
+            <span class="material-symbols-rounded dropdown__chevron">expand_more</span>
           </button>
           <ul class="dropdown__menu" role="listbox">
             <li class="dropdown__item" role="option" data-value="48000" aria-selected="true">48 kHz</li>
@@ -128,7 +133,7 @@
         <button id="voice-create" type="button" class="btn-generate voice-create">Create new</button>
 
         <div class="voice-search">
-          <span class="material-symbols-outlined voice-search__icon" aria-hidden="true">search</span>
+          <span class="material-symbols-rounded voice-search__icon" aria-hidden="true">search</span>
           <input id="voice-search" class="voice-search__input" type="search" placeholder="Search for voices" aria-label="Search for voices">
         </div>
 
@@ -137,7 +142,19 @@
       </section>
 
       <section id="tab-settings" class="tab-content">
-        <p class="tab-placeholder">Only but chickens here</p>
+        <div id="settings-tab" class="settings-tab"></div>
+      </section>
+
+      <section id="tab-history" class="tab-content">
+        <div class="history-search">
+          <span class="material-symbols-rounded history-search__icon" aria-hidden="true">search</span>
+          <input id="history-search" class="history-search__input" type="search" placeholder="Search history" aria-label="Search history">
+        </div>
+
+        <button id="history-delete-all" type="button" class="history-delete-all">Delete History</button>
+
+        <ul id="history-list" class="history-list"></ul>
+        <p id="history-empty" class="history-empty" hidden>No history yet</p>
       </section>
     </aside>
   </main>
@@ -145,6 +162,24 @@
   <div id="voice-context-menu" class="context-menu" hidden>
     <button type="button" class="context-menu__item" data-action="edit">Edit</button>
     <button type="button" class="context-menu__item context-menu__item--danger" data-action="delete">Delete</button>
+  </div>
+
+  <div id="history-context-menu" class="context-menu" hidden>
+    <button type="button" class="context-menu__item context-menu__item--danger" data-action="delete">Delete</button>
+  </div>
+
+  <div id="confirm-modal" class="modal" hidden>
+    <div class="modal__backdrop"></div>
+    <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <h2 id="confirm-modal-title" class="modal__title">Confirm</h2>
+      <div class="modal__body">
+        <p id="confirm-message" class="restart-modal__text"></p>
+      </div>
+      <footer class="modal__footer">
+        <button id="confirm-cancel" type="button" class="btn-ghost">Cancel</button>
+        <button id="confirm-ok" type="button" class="btn-generate btn-generate--danger">Confirm</button>
+      </footer>
+    </div>
   </div>
 
   <div id="voice-modal" class="modal" hidden>
@@ -166,17 +201,18 @@
         <div class="modal__group">
           <span class="form-label">Voice Photo</span>
           <div id="voice-photo-drop" class="drop-zone" role="button" tabindex="0" aria-label="Drag n Drop an image">
-            <span class="material-symbols-outlined drop-zone__icon" aria-hidden="true">image</span>
+            <span class="material-symbols-rounded drop-zone__icon" aria-hidden="true">image</span>
             <span class="drop-zone__text">Drag n Drop an image.</span>
             <img class="drop-zone__preview" alt="" hidden>
           </div>
-          <input id="voice-photo-input" type="file" accept="image/*" hidden>
+          <span id="voice-photo-error" class="drop-zone__error" hidden>It can't accept the file</span>
+          <input id="voice-photo-input" type="file" accept=".png,.jpg,.jpeg,.gif,image/png,image/jpeg,image/gif" hidden>
         </div>
 
         <div class="modal__group">
           <span class="form-label">Reference audio</span>
           <div id="voice-ref-drop" class="drop-zone" role="button" tabindex="0" aria-label="Drag n Drop a reference file">
-            <span class="material-symbols-outlined drop-zone__icon" aria-hidden="true">upload_file</span>
+            <span class="material-symbols-rounded drop-zone__icon" aria-hidden="true">upload_file</span>
             <span class="drop-zone__text">Drag n Drop a reference file</span>
           </div>
           <input id="voice-ref-input" type="file" accept=".wav,audio/wav,audio/*" hidden>
@@ -206,7 +242,7 @@
           <div class="dropdown" id="app-language">
             <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
               <span class="dropdown__value">English</span>
-              <span class="material-symbols-outlined dropdown__chevron">expand_more</span>
+              <span class="material-symbols-rounded dropdown__chevron">expand_more</span>
             </button>
             <ul class="dropdown__menu" role="listbox">
               <li class="dropdown__item" role="option" data-value="en" aria-selected="true">English</li>
@@ -220,7 +256,7 @@
           <div class="dropdown" id="tts-service">
             <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
               <span class="dropdown__value">Omnivoice</span>
-              <span class="material-symbols-outlined dropdown__chevron">expand_more</span>
+              <span class="material-symbols-rounded dropdown__chevron">expand_more</span>
             </button>
             <ul class="dropdown__menu" role="listbox">
               <li class="dropdown__item" role="option" data-value="omnivoice" aria-selected="true">Omnivoice</li>
@@ -233,7 +269,7 @@
           <h3 class="section-label">Startup</h3>
           <label class="checkbox" for="skip-setup">
             <input id="skip-setup" type="checkbox">
-            <span class="checkbox__box"><span class="material-symbols-outlined checkbox__check">check</span></span>
+            <span class="checkbox__box"><span class="material-symbols-rounded checkbox__check">check</span></span>
             <span class="checkbox__label">Skip setup page on launch</span>
           </label>
         </div>
@@ -301,13 +337,66 @@
     </div>
   </div>
 
+  <div id="credits-modal" class="modal" hidden>
+    <div class="modal__backdrop"></div>
+    <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="credits-modal-title">
+      <h2 id="credits-modal-title" class="modal__title">Credits</h2>
+      <div class="modal__body">
+        <div class="credits__people">
+          <button class="credit__banner" type="button" data-url="https://github.com/tyebgat">
+            <span class="credit__info">
+              <span class="credit__name">Tagb</span>
+              <span class="credit__desc">Developer of Voice Technitos</span>
+            </span>
+            <img class="credit__avatar" src="https://avatars.githubusercontent.com/u/211856281?v=4" alt="Tagb">
+          </button>
+          <button class="credit__banner" type="button" data-url="https://github.com/k2-fsa/OmniVoice">
+            <span class="credit__info">
+              <span class="credit__name">k2-fsa</span>
+              <span class="credit__desc">Team behind the Omnivoice Text To Speech model.</span>
+            </span>
+            <img class="credit__avatar" src="https://avatars.githubusercontent.com/u/71431748?s=200&v=4" alt="k2-fsa">
+          </button>
+          <button class="credit__banner" type="button" data-url="https://github.com/kyutai-labs/pocket-tts">
+            <span class="credit__info">
+              <span class="credit__name">kyutai</span>
+              <span class="credit__desc">Team behind the PocketTTS Text To Speech model.</span>
+            </span>
+            <img class="credit__avatar" src="https://avatars.githubusercontent.com/u/151010778?s=200&v=4" alt="kyutai">
+          </button>
+        </div>
+        <div class="credits__tech">
+          <button class="credit__chip" type="button" data-url="https://www.python.org/">
+            <img class="credit__logo" src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg" alt="Python">
+            <h1>Python 3.11</h1>
+          </button>
+          <button class="credit__chip" type="button" data-url="https://developer.mozilla.org/en-US/docs/Web/JavaScript">
+            <img class="credit__logo" src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/javascript/javascript-original.svg" alt="JavaScript">
+            <h1>Javascript</h1>
+          </button>
+          <button class="credit__chip" type="button" data-url="https://developer.mozilla.org/en-US/docs/Web/CSS">
+            <img class="credit__logo" src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/css3/css3-original.svg" alt="CSS">
+            <h1>CSS</h1>
+          </button>
+          <button class="credit__chip" type="button" data-url="https://developer.mozilla.org/en-US/docs/Web/HTML">
+            <img class="credit__logo" src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/html5/html5-original.svg" alt="HTML">
+            <h1>HTML</h1>
+          </button>
+        </div>
+      </div>
+      <footer class="modal__footer">
+        <button id="credits-close" type="button" class="btn-generate">OK</button>
+      </footer>
+    </div>
+  </div>
+
   <div id="bootstrap" class="bootstrap">
     <section id="bootstrap-setup" class="bootstrap__view">
       <h1 class="bootstrap__h1">Please choose your desired Text To Speech service.</h1>
       <div class="dropdown bootstrap__dropdown" id="setup-service">
         <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
           <span class="dropdown__value">Omnivoice</span>
-          <span class="material-symbols-outlined dropdown__chevron">expand_more</span>
+          <span class="material-symbols-rounded dropdown__chevron">expand_more</span>
         </button>
         <ul class="dropdown__menu" role="listbox">
           <li class="dropdown__item" role="option" data-value="omnivoice" aria-selected="true">Omnivoice</li>

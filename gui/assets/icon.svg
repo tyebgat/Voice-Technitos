@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="512"
+   height="512"
+   viewBox="0 0 512 512"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   sodipodi:docname="Voice Technitos logo.svg"
+   inkscape:export-filename="icon.svg"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#999999"
+     borderopacity="1"
+     inkscape:showpageshadow="true"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="true"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     labelstyle="default"
+     borderlayer="true"
+     showborder="true"
+     inkscape:zoom="1.1269514"
+     inkscape:cx="178.35729"
+     inkscape:cy="276.85311"
+     inkscape:window-width="1920"
+     inkscape:window-height="1004"
+     inkscape:window-x="-9"
+     inkscape:window-y="-9"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1">
+    <rect
+       x="69.213276"
+       y="76.312073"
+       width="404.63146"
+       height="361.15132"
+       id="rect3" />
+    <rect
+       x="69.213276"
+       y="76.312073"
+       width="404.63146"
+       height="361.15132"
+       id="rect1" />
+  </defs>
+  <g
+     inkscape:groupmode="layer"
+     id="layer3"
+     inkscape:label="Voice Technitos">
+    <rect
+       style="display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:15;stroke-dasharray:none;stroke-opacity:1"
+       id="rect2"
+       width="512"
+       height="512"
+       x="0"
+       y="0"
+       rx="23.173632"
+       ry="18.634344"
+       inkscape:label="BG" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer1"
+     inkscape:label="Voice Technitos 1">
+    <path
+       style="font-weight:bold;font-size:306.667px;line-height:0.8;font-family:Roboto;-inkscape-font-specification:'Roboto Bold';white-space:pre;fill:#0b164d;stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:15"
+       d="M 167.29242,266.62212 218.65315,94.121939 h 50.01308 L 192.74818,312.143 h -32.94275 z m -47.31776,-172.500181 51.211,172.500181 7.78646,45.52088 H 145.7299 L 70.261069,94.121939 Z M 413.46455,239.81871 h 44.77218 q -1.34765,22.01174 -12.12892,39.08207 -10.63152,17.07033 -29.7982,26.65367 -19.01695,9.58335 -45.82037,9.58335 -20.96356,0 -37.58467,-7.18751 -16.62111,-7.33725 -28.45055,-20.96356 -11.6797,-13.62632 -17.81903,-32.94275 -6.13933,-19.31642 -6.13933,-43.27478 v -15.12372 q 0,-23.95835 6.28907,-43.27478 6.43881,-19.46617 18.26825,-33.09248 11.97918,-13.62632 28.60029,-20.963568 16.62111,-7.337248 37.13545,-7.337248 27.25264,0 45.97011,9.882826 18.8672,9.88282 29.19925,27.25263 10.48178,17.36981 12.57813,39.53129 h -44.92192 q -0.7487,-13.1771 -5.24089,-22.31122 -4.49219,-9.28386 -13.62632,-13.9258 -8.98438,-4.79167 -23.95836,-4.79167 -11.23048,0 -19.6159,4.19272 -8.38543,4.19271 -14.07554,12.72787 -5.69011,8.53517 -8.53516,21.56253 -2.69532,12.87761 -2.69532,30.24742 v 15.4232 q 0,16.92059 2.54558,29.79821 2.54557,12.72787 7.78646,21.56252 5.39063,8.6849 13.77606,13.1771 8.53517,4.34245 20.51434,4.34245 14.07554,0 23.20966,-4.49219 9.13413,-4.4922 13.9258,-13.32684 4.94141,-8.83464 5.83985,-22.01174 z"
+       id="text2"
+       inkscape:label="text2"
+       transform="translate(-14.879762,62.867529)"
+       aria-label="VC" />
+    <path
+       style="font-weight:bold;font-size:306.667px;line-height:0.8;font-family:Roboto;-inkscape-font-specification:'Roboto Bold';white-space:pre;fill:#ffffff;stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:15"
+       d="M 167.29242,266.62212 218.65315,94.121939 h 50.01308 L 192.74818,312.143 h -32.94275 z m -47.31776,-172.500181 51.211,172.500181 7.78646,45.52088 H 145.7299 L 70.261069,94.121939 Z M 413.46455,239.81871 h 44.77218 q -1.34765,22.01174 -12.12892,39.08207 -10.63152,17.07033 -29.7982,26.65367 -19.01695,9.58335 -45.82037,9.58335 -20.96356,0 -37.58467,-7.18751 -16.62111,-7.33725 -28.45055,-20.96356 -11.6797,-13.62632 -17.81903,-32.94275 -6.13933,-19.31642 -6.13933,-43.27478 v -15.12372 q 0,-23.95835 6.28907,-43.27478 6.43881,-19.46617 18.26825,-33.09248 11.97918,-13.62632 28.60029,-20.963568 16.62111,-7.337248 37.13545,-7.337248 27.25264,0 45.97011,9.882826 18.8672,9.88282 29.19925,27.25263 10.48178,17.36981 12.57813,39.53129 h -44.92192 q -0.7487,-13.1771 -5.24089,-22.31122 -4.49219,-9.28386 -13.62632,-13.9258 -8.98438,-4.79167 -23.95836,-4.79167 -11.23048,0 -19.6159,4.19272 -8.38543,4.19271 -14.07554,12.72787 -5.69011,8.53517 -8.53516,21.56253 -2.69532,12.87761 -2.69532,30.24742 v 15.4232 q 0,16.92059 2.54558,29.79821 2.54557,12.72787 7.78646,21.56252 5.39063,8.6849 13.77606,13.1771 8.53517,4.34245 20.51434,4.34245 14.07554,0 23.20966,-4.49219 9.13413,-4.4922 13.9258,-13.32684 4.94141,-8.83464 5.83985,-22.01174 z"
+       id="text1"
+       transform="translate(-4.8797624,52.867529)"
+       aria-label="VC" />
+  </g>
+</svg>

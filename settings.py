@@ -108,11 +108,16 @@ class Settings:
         self.backup_dir = backup_dir or BACKUP_DIR
         self._raw_defaults = {}
         self._sections = {}
-        for section in SECTION_ORDER:
-            self._raw_defaults[section] = self._load_or_generate_defaults(section)
-            self._sections[section] = _filter_values(self._raw_defaults[section])
-            self._load_user_settings(section)
-        self._merged = self._build_merged()
+        try:
+            for section in SECTION_ORDER:
+                self._raw_defaults[section] = self._load_or_generate_defaults(section)
+                self._sections[section] = _filter_values(self._raw_defaults[section])
+                self._load_user_settings(section)
+            self._merged = self._build_merged()
+            logger.success("Settings initialized.")
+        except Exception as e:
+            logger.exception(f"Failed to initialize settings: {e}")
+            raise
 
     # ── paths ────────────────────────────────────────────────────────────────
     def _file_path(self, section: str) -> str:
@@ -139,11 +144,15 @@ class Settings:
         return self._generate_defaults_file(section)
 
     def _generate_defaults_file(self, section: str) -> dict:
-        os.makedirs(self.backup_dir, exist_ok=True)
-        with open(self._defaults_path(section), "w", encoding="utf-8") as f:
-            json.dump(BUILTIN_DEFAULTS[section], f, indent=2, ensure_ascii=False)
-        logger.success(f"Defaults backup written to {self._defaults_path(section)}")
-        return dict(BUILTIN_DEFAULTS[section])
+        try:
+            os.makedirs(self.backup_dir, exist_ok=True)
+            with open(self._defaults_path(section), "w", encoding="utf-8") as f:
+                json.dump(BUILTIN_DEFAULTS[section], f, indent=2, ensure_ascii=False)
+            logger.success(f"Defaults backup written to {self._defaults_path(section)}")
+            return dict(BUILTIN_DEFAULTS[section])
+        except Exception as e:
+            logger.exception(f"Failed to generate defaults backup ({section}): {e}")
+            raise
 
     def _load_user_settings(self, section: str):
         path = self._file_path(section)
@@ -178,6 +187,25 @@ class Settings:
     def all_settings(self) -> dict:
         return dict(self._merged)
 
+    def raw_sections(self) -> dict:
+        """Return every section as its live file content (incl. _comment_* and nulls)."""
+        try:
+            result = {}
+            for section in SECTION_ORDER:
+                raw = dict(self._raw_defaults[section])
+                for key, value in self._sections[section].items():
+                    if not key.startswith("_"):
+                        raw[key] = value
+                result[section] = raw
+            return result
+        except Exception as e:
+            logger.exception(f"Failed to build raw sections: {e}")
+            raise
+
+    def raw_defaults(self) -> dict:
+        """Return the factory defaults for every section (backup or built-in)."""
+        return {section: dict(self._raw_defaults[section]) for section in SECTION_ORDER}
+
     @property
     def tts_service(self) -> str:
         return self.get("tts_service", "omnivoice")
@@ -185,29 +213,59 @@ class Settings:
     # ── saving / reset ───────────────────────────────────────────────────────
     def set(self, section: str, key: str, value):
         """Update a single key inside a section (persisted on the next save())."""
-        if section in self._sections and not key.startswith("_"):
-            self._sections[section][key] = value
-            self._merged = self._build_merged()
+        try:
+            if section in self._sections and not key.startswith("_"):
+                self._sections[section][key] = value
+                self._merged = self._build_merged()
+        except Exception as e:
+            logger.exception(f"Failed to set settings key '{section}.{key}': {e}")
+            raise
 
     def _save_section(self, section: str):
-        raw = dict(self._raw_defaults[section])
-        for key, value in self._sections[section].items():
-            if not key.startswith("_"):
-                raw[key] = value
-        os.makedirs(self.data_dir, exist_ok=True)
-        with open(self._file_path(section), "w", encoding="utf-8") as f:
-            json.dump(raw, f, indent=2, ensure_ascii=False)
-        logger.info(f"[{section}] Settings saved to {self._file_path(section)}")
+        try:
+            raw = dict(self._raw_defaults[section])
+            for key, value in self._sections[section].items():
+                if not key.startswith("_"):
+                    raw[key] = value
+            os.makedirs(self.data_dir, exist_ok=True)
+            with open(self._file_path(section), "w", encoding="utf-8") as f:
+                json.dump(raw, f, indent=2, ensure_ascii=False)
+            logger.info(f"[{section}] Settings saved to {self._file_path(section)}")
+        except Exception as e:
+            logger.exception(f"Failed to save settings section '{section}': {e}")
+            raise
 
     def save(self):
-        for section in SECTION_ORDER:
-            self._save_section(section)
-        logger.success("All settings saved.")
+        try:
+            for section in SECTION_ORDER:
+                self._save_section(section)
+            logger.success("All settings saved.")
+        except Exception as e:
+            logger.exception(f"Failed to save settings: {e}")
+            raise
 
     def reset(self) -> dict:
         """Restore all section files to their defaults backup values."""
-        for section in SECTION_ORDER:
+        try:
+            for section in SECTION_ORDER:
+                self._sections[section] = _filter_values(self._raw_defaults[section])
+            self.save()
+            logger.success("Settings reset to defaults.")
+            return self.all_settings()
+        except Exception as e:
+            logger.exception(f"Failed to reset settings: {e}")
+            raise
+
+    def reset_section(self, section: str) -> dict:
+        """Restore a single section to its defaults backup values."""
+        try:
+            if section not in self._sections:
+                raise ValueError(f"Unknown settings section '{section}'")
             self._sections[section] = _filter_values(self._raw_defaults[section])
-        self.save()
-        logger.success("Settings reset to defaults.")
-        return self.all_settings()
+            self._merged = self._build_merged()
+            self._save_section(section)
+            logger.success(f"Settings reset to defaults (section={section}).")
+            return dict(self._sections[section])
+        except Exception as e:
+            logger.exception(f"Failed to reset settings section '{section}': {e}")
+            raise

@@ -14,4 +14,5 @@ html[data-theme="dark"] {
   --tag: #3B82F6;
   --btn-bg: #FFFFFF;
   --btn-text: #0F0F10;
+  --danger: #E5484D;
 }

@@ -29,6 +29,8 @@
   const alertMessage = document.getElementById("alert-message");
   const emotionModal = document.getElementById("emotion-modal");
   const emotionTagsBtn = document.getElementById("emotion-tags");
+  const creditsModal = document.getElementById("credits-modal");
+  const btnCredits = document.getElementById("btn-credits");
   const overviewAvatar = document.getElementById("overview-avatar");
   const overviewVoiceName = document.getElementById("overview-voice-name");
   const ttsServiceDropdown = document.getElementById("tts-service");
@@ -102,6 +104,51 @@
     .querySelector(".modal__backdrop")
     .addEventListener("click", closeEmotionModal);
 
+  const openCreditsModal = () => {
+    creditsModal.hidden = false;
+    creditsModal.classList.remove("closing");
+    creditsModal.classList.add("open");
+  };
+
+  const closeCreditsModal = () => {
+    if (creditsModal.hidden) return;
+    creditsModal.classList.add("closing");
+    setTimeout(() => {
+      creditsModal.classList.remove("open", "closing");
+      creditsModal.hidden = true;
+    }, 120);
+  };
+
+  const openExternal = (url) => {
+    if (!url) return;
+    if (
+      window.pywebview &&
+      window.pywebview.api &&
+      typeof window.pywebview.api.open_external === "function"
+    ) {
+      try {
+        window.pywebview.api.open_external(url);
+      } catch (err) {
+        console.error("Failed to open external link:", err);
+      }
+    } else {
+      window.open(url, "_blank", "noopener");
+    }
+  };
+
+  btnCredits.addEventListener("click", openCreditsModal);
+  document
+    .getElementById("credits-close")
+    .addEventListener("click", closeCreditsModal);
+  creditsModal
+    .querySelector(".modal__backdrop")
+    .addEventListener("click", closeCreditsModal);
+  creditsModal
+    .querySelectorAll(".credit__banner, .credit__chip")
+    .forEach((el) =>
+      el.addEventListener("click", () => openExternal(el.dataset.url))
+    );
+
   const apiFetch = async (url, opts) => {
     const res = await fetch(url, opts);
     const ct = res.headers.get("content-type") || "";
@@ -174,10 +221,22 @@
       } catch (err) {
         console.error("Failed to save settings before closing:", err);
       }
-      try {
-        await apiFetch("/api/shutdown", { method: "POST" });
-      } catch (err) {
-        /* the app may close before the response arrives */
+      const viaBridge =
+        window.pywebview &&
+        window.pywebview.api &&
+        typeof window.pywebview.api.close_application === "function";
+      if (viaBridge) {
+        try {
+          await window.pywebview.api.close_application();
+        } catch (err) {
+          console.error("Failed to close the application:", err);
+        }
+      } else {
+        try {
+          await apiFetch("/api/shutdown", { method: "POST" });
+        } catch (err) {
+          /* the app may close before the response arrives */
+        }
       }
     });
 
@@ -220,6 +279,14 @@
       btn.classList.toggle("active", btn.dataset.tab === name)
     );
     if (name === "voices") loadVoices();
+    if (name === "settings") renderSettingsTab().catch((err) => console.error("Failed to render settings tab:", err));
+    if (name === "history") {
+      stopHistoryPolling();
+      loadHistory();
+      historyPollTimer = setInterval(loadHistory, 3000);
+    } else {
+      stopHistoryPolling();
+    }
   }
 
   tabButtons.forEach((btn) =>
@@ -523,6 +590,374 @@
     );
   });
 
+  // ---------- Settings tab (generation parameters) ----------
+
+  const settingsTab = document.getElementById("settings-tab");
+  const speedValue = document.getElementById("speed-value");
+
+  const SETTING_SCHEMAS = {
+    omnivoice: {
+      model_id: {
+        control: "text",
+        label: "Model ID",
+        desc: "Hugging Face repository ID of the OmniVoice model to load.",
+      },
+      num_step: {
+        control: "slider",
+        min: 1,
+        max: 64,
+        step: 1,
+        desc: "Number of iterative unmasking steps. Higher values improve quality but slow down generation. Use 16 for faster inference.",
+      },
+      denoise: {
+        control: "toggle",
+        desc: "Prepend a denoise token to the prompt to reduce background noise in the generated audio.",
+      },
+      guidance_scale: {
+        control: "slider",
+        min: 0,
+        max: 8,
+        step: 0.1,
+        desc: "Classifier-free guidance scale.",
+      },
+      t_shift: {
+        control: "slider",
+        min: 0,
+        max: 1,
+        step: 0.01,
+        desc: "Time-step shift for the noise schedule. Smaller values emphasise earlier steps in decoding.",
+      },
+      position_temperature: {
+        control: "slider",
+        min: 0,
+        max: 15,
+        step: 0.1,
+        desc: "Temperature for mask-position selection. 0 = greedy (deterministic). Higher values increase randomness.",
+      },
+      class_temperature: {
+        control: "slider",
+        min: 0,
+        max: 3,
+        step: 0.1,
+        desc: "Temperature for token sampling at each step. 0 = greedy (deterministic). Higher values increase randomness.",
+      },
+      layer_penalty_factor: {
+        control: "slider",
+        min: 0,
+        max: 10,
+        step: 0.1,
+        desc: "Penalty applied to deeper codebook layers, encouraging earlier (lower) layers to unmask first.",
+      },
+      duration: {
+        control: "number",
+        step: 0.1,
+        desc: "Fixed output duration in seconds. Overrides speed when set. Leave empty to estimate the duration from the text.",
+      },
+      speed: {
+        control: "slider",
+        min: 0.5,
+        max: 4,
+        step: 0.1,
+        desc: "Speed factor. Values above 1.0 shorten the audio (faster); below 1.0 lengthen it (slower). Ignored when duration is set.",
+      },
+      preprocess_prompt: {
+        control: "toggle",
+        desc: "Apply preprocessing to the voice-clone prompt audio: remove long silences in the reference audio and add punctuation at the end of the reference text.",
+      },
+      postprocess_output: {
+        control: "toggle",
+        desc: "Apply post-processing to the generated audio, removing long silences.",
+      },
+      pad_duration: {
+        control: "slider",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        desc: "Silence padding duration per side, in seconds. Set to 0 to disable.",
+      },
+      fade_duration: {
+        control: "slider",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        desc: "Fade-in/out curve duration, in seconds. Set to 0 to disable.",
+      },
+      audio_chunk_duration: {
+        control: "slider",
+        min: 1,
+        max: 60,
+        step: 0.5,
+        desc: "Target chunk duration (seconds) used when splitting long text into segments.",
+      },
+      audio_chunk_threshold: {
+        control: "slider",
+        min: 1,
+        max: 120,
+        step: 1,
+        desc: "Estimated audio duration (seconds) above which long-form chunking is activated.",
+      },
+    },
+  };
+
+  const formatSettingName = (key, meta) => {
+    if (meta && meta.label) return meta.label;
+    return key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+  };
+
+  const cleanCategoryHeader = (raw) => {
+    if (typeof raw !== "string") return "";
+    return raw.replace(/-+/g, " ").trim();
+  };
+
+  const settingsTip = (desc) => {
+    if (!desc) return null;
+    const tip = document.createElement("span");
+    tip.className = "settings-tip";
+    tip.tabIndex = 0;
+    tip.dataset.tip = desc;
+    tip.textContent = "?";
+    tip.setAttribute("role", "tooltip");
+    return tip;
+  };
+
+  const settingsInputId = (service, key) =>
+    `setting-${service}-${key.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+
+  const saveSectionConfig = async (service, updates) => {
+    await apiFetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config: { [service]: updates } }),
+    });
+  };
+
+  const fetchSettings = () => apiFetch("/api/settings");
+
+  const formatStepValue = (n, step) => {
+    const decimals = String(step).includes(".")
+      ? String(step).split(".")[1].length
+      : 0;
+    return Number(n).toFixed(decimals);
+  };
+
+  function buildSliderRow(service, key, value, meta) {
+    const wrap = document.createElement("div");
+    wrap.className = "slider-control";
+
+    const head = document.createElement("div");
+    head.className = "slider-control__head";
+
+    const label = document.createElement("span");
+    label.className = "slider-control__label";
+    label.textContent = formatSettingName(key, meta);
+    const tip = settingsTip(meta.desc);
+    if (tip) label.appendChild(tip);
+    head.appendChild(label);
+
+    const val = document.createElement("span");
+    val.className = "slider-control__value";
+    head.appendChild(val);
+    wrap.appendChild(head);
+
+    const input = document.createElement("input");
+    input.className = "slider";
+    input.type = "range";
+    input.min = meta.min;
+    input.max = meta.max;
+    input.step = meta.step;
+    input.value = Number(value);
+
+    const sync = () => {
+      val.textContent = formatStepValue(input.value, meta.step);
+      const pct =
+        ((input.value - meta.min) / (meta.max - meta.min)) * 100;
+      input.style.setProperty("--fill", `${pct}%`);
+    };
+
+    input.addEventListener("input", sync);
+    wrap.appendChild(input);
+    sync();
+
+    input.addEventListener("change", () => {
+      const parsed = parseFloat(input.value);
+      saveSectionConfig(service, { [key]: parsed })
+        .then(() => {
+          if (key === "speed") {
+            sliderSpeed.value = parsed;
+            speedValue.textContent = parsed.toFixed(1);
+            const pct =
+              ((parsed - sliderSpeed.min) / (sliderSpeed.max - sliderSpeed.min)) *
+              100;
+            sliderSpeed.style.setProperty("--fill", `${pct}%`);
+          }
+        })
+        .catch((err) => console.error("Failed to save setting:", err));
+    });
+
+    return wrap;
+  }
+
+  function buildToggleRow(service, key, value, meta) {
+    const label = document.createElement("label");
+    label.className = "checkbox checkbox--row";
+
+    const text = document.createElement("span");
+    text.className = "settings-toggle-row__label";
+    text.textContent = formatSettingName(key, meta);
+    const tip = settingsTip(meta.desc);
+    if (tip) text.appendChild(tip);
+    label.appendChild(text);
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = !!value;
+
+    const box = document.createElement("span");
+    box.className = "checkbox__box";
+    const check = document.createElement("span");
+    check.className = "material-symbols-rounded checkbox__check";
+    check.textContent = "check";
+    box.appendChild(check);
+
+    label.appendChild(input);
+    label.appendChild(box);
+
+    input.addEventListener("change", () => {
+      saveSectionConfig(service, { [key]: input.checked }).catch((err) =>
+        console.error("Failed to save setting:", err)
+      );
+    });
+
+    return label;
+  }
+
+  function buildInputRow(service, key, value, meta, opts) {
+    const wrap = document.createElement("div");
+    wrap.className = "settings-input-row";
+
+    const label = document.createElement("label");
+    label.className = "form-label";
+    label.htmlFor = settingsInputId(service, key);
+    label.textContent = formatSettingName(key, meta);
+    const tip = settingsTip(meta.desc);
+    if (tip) label.appendChild(tip);
+    wrap.appendChild(label);
+
+    const input = document.createElement("input");
+    input.id = label.htmlFor;
+    input.className = "form-input";
+    input.type = opts.type;
+    input.step = meta.step || "any";
+    input.value = value == null ? "" : String(value);
+    input.autocomplete = "off";
+    if (opts.placeholder) input.placeholder = opts.placeholder;
+    wrap.appendChild(input);
+
+    input.addEventListener("change", () => {
+      let parsed;
+      if (opts.type === "number") {
+        if (input.value.trim() === "") parsed = null;
+        else {
+          parsed = Number(input.value);
+          if (Number.isNaN(parsed)) return;
+        }
+      } else {
+        parsed = input.value.trim();
+      }
+      saveSectionConfig(service, { [key]: parsed })
+        .then(() => {
+          if (parsed == null) input.value = "";
+        })
+        .catch((err) => console.error("Failed to save setting:", err));
+    });
+
+    return wrap;
+  }
+
+  function buildSettingRow(service, key, value) {
+    const meta = (SETTING_SCHEMAS[service] || {})[key];
+    if (!meta) return null;
+    switch (meta.control) {
+      case "slider":
+        return buildSliderRow(service, key, value, meta);
+      case "toggle":
+        return buildToggleRow(service, key, value, meta);
+      case "number":
+        return buildInputRow(service, key, value, meta, {
+          type: "number",
+          placeholder: "Auto (estimated)",
+        });
+      case "text":
+        return buildInputRow(service, key, value, meta, { type: "text" });
+      default:
+        return null;
+    }
+  }
+
+  function buildRestoreButton(service) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "settings-restore";
+
+    const icon = document.createElement("span");
+    icon.className = "material-symbols-rounded";
+    icon.textContent = "refresh";
+    const text = document.createElement("span");
+    text.textContent = "Restore to defaults";
+
+    btn.append(icon, text);
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await apiFetch("/api/settings/reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ section: service }),
+        });
+        await renderSettingsTab();
+      } catch (err) {
+        console.error("Failed to restore settings:", err);
+        showAlert(err.message || "Failed to restore settings to defaults.");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    return btn;
+  }
+
+  async function renderSettingsTab() {
+    const data = await fetchSettings();
+    const service = "omnivoice";
+    const raw = (data.sections || {})[service] || {};
+    const schema = SETTING_SCHEMAS[service] || {};
+
+    settingsTab.replaceChildren();
+    const fragment = document.createDocumentFragment();
+    let category = null;
+    let rows = null;
+
+    for (const [key, value] of Object.entries(raw)) {
+      if (key.startsWith("_")) {
+        if (category) fragment.appendChild(category);
+        category = document.createElement("div");
+        category.className = "settings-category";
+        const heading = document.createElement("h3");
+        heading.className = "section-label";
+        heading.textContent = cleanCategoryHeader(value);
+        category.appendChild(heading);
+        rows = document.createElement("div");
+        category.appendChild(rows);
+      } else if (schema[key] && category) {
+        const row = buildSettingRow(service, key, value);
+        if (row) rows.appendChild(row);
+      }
+    }
+    if (category) fragment.appendChild(category);
+    fragment.appendChild(buildRestoreButton(service));
+    settingsTab.appendChild(fragment);
+  }
+
   // ---------- Bootstrap / loading screen ----------
 
   const bootstrap = document.getElementById("bootstrap");
@@ -750,6 +1185,13 @@
       emotionTagsBtn.hidden = chosenService !== "omnivoice";
       if (setupDropdown._setValue) setupDropdown._setValue(chosenService);
 
+      if (new URLSearchParams(location.search).get("preview") === "1") {
+        bootstrap.hidden = true;
+        loadVoices();
+        switchTab("settings");
+        return;
+      }
+
       if (s.skip_setup) {
         startInit(null);
       } else {
@@ -774,6 +1216,7 @@
   const voiceTranscriptionInput = document.getElementById("voice-transcription");
   const voicePhotoDrop = document.getElementById("voice-photo-drop");
   const voicePhotoInput = document.getElementById("voice-photo-input");
+  const voicePhotoError = document.getElementById("voice-photo-error");
   const voiceRefDrop = document.getElementById("voice-ref-drop");
   const voiceRefInput = document.getElementById("voice-ref-input");
   const voiceCancelBtn = document.getElementById("voice-cancel");
@@ -867,6 +1310,7 @@
 
     item.addEventListener("contextmenu", (e) => {
       e.preventDefault();
+      e.stopPropagation();
       selectedVoice = v.name;
       renderVoices();
       showVoiceMenu(e.clientX, e.clientY);
@@ -897,7 +1341,17 @@
   });
 
   document.addEventListener("click", (e) => {
-    if (!e.target.closest(".context-menu")) hideVoiceMenu();
+    if (!e.target.closest(".context-menu")) {
+      hideVoiceMenu();
+      hideHistoryMenu();
+    }
+  });
+
+  document.addEventListener("contextmenu", (e) => {
+    if (!e.target.closest(".context-menu")) {
+      hideVoiceMenu();
+      hideHistoryMenu();
+    }
   });
 
   function resetDropZone(zone, label) {
@@ -911,6 +1365,7 @@
     voiceNameInput.value = "";
     voiceDescInput.value = "";
     voiceTranscriptionInput.value = "";
+    voicePhotoError.hidden = true;
     resetDropZone(voicePhotoDrop, "Drag n Drop an image.");
     resetDropZone(voiceRefDrop, "Drag n Drop a reference file");
     pendingIcon = null;
@@ -1011,13 +1466,28 @@
     });
   }
 
+  const ICON_ACCEPTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif"];
+  const ICON_ACCEPTED_MIMES = ["image/png", "image/jpeg", "image/gif"];
+
+  const isAcceptedIcon = (file) => {
+    const name = (file.name || "").toLowerCase();
+    return (
+      ICON_ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext)) &&
+      ICON_ACCEPTED_MIMES.includes(file.type)
+    );
+  };
+
   bindDropZone(voicePhotoDrop, voicePhotoInput, (file) => {
-    pendingIcon = file;
-    if (file.type.startsWith("image/")) {
-      const preview = voicePhotoDrop.querySelector(".drop-zone__preview");
-      preview.src = URL.createObjectURL(file);
-      voicePhotoDrop.classList.add("has-preview");
+    if (!isAcceptedIcon(file)) {
+      voicePhotoError.hidden = false;
+      pendingIcon = null;
+      return;
     }
+    voicePhotoError.hidden = true;
+    pendingIcon = file;
+    const preview = voicePhotoDrop.querySelector(".drop-zone__preview");
+    preview.src = URL.createObjectURL(file);
+    voicePhotoDrop.classList.add("has-preview");
     voicePhotoDrop.querySelector(".drop-zone__text").textContent = file.name;
   });
 
@@ -1084,7 +1554,7 @@
   const playerDownload = document.getElementById("player-download");
   const playerWave = document.getElementById("player-wave");
   const playerAudio = document.getElementById("player-audio");
-  const playerPlayIcon = playerPlay.querySelector(".material-symbols-outlined");
+  const playerPlayIcon = playerPlay.querySelector(".material-symbols-rounded");
   const WIDGET_FADE_MS = 250;
 
   const setPlayIcon = (playing) => {
@@ -1140,8 +1610,30 @@
     }
   };
 
+  const showPlayerLoading = () => {
+    playerAudio.pause();
+    playerAudio.removeAttribute("src");
+    playerWidget.classList.add("loading");
+    if (playerWidget.hidden) {
+      playerWidget.hidden = false;
+      requestAnimationFrame(() => playerWidget.classList.add("visible"));
+    } else {
+      playerWidget.classList.add("visible");
+    }
+  };
+
+  const hidePlayer = () => {
+    playerAudio.pause();
+    playerAudio.removeAttribute("src");
+    playerWidget.classList.remove("visible", "loading");
+    setTimeout(() => {
+      playerWidget.hidden = true;
+    }, WIDGET_FADE_MS);
+  };
+
   const showPlayer = (url, filename) => {
     const refresh = () => {
+      playerWidget.classList.remove("loading");
       playerAudio.src = url;
       playerAudio.load();
       playerDownload.href = url;
@@ -1171,10 +1663,7 @@
 
   playerAudio.addEventListener("ended", () => setPlayIcon(false));
 
-  playerDownload.addEventListener("click", async (e) => {
-    e.preventDefault();
-    const filename = playerDownload.download || "output.wav";
-
+  const downloadAudio = async (url, filename) => {
     const saveViaPicker = async () => {
       if (!window.showSaveFilePicker) return false;
       try {
@@ -1185,7 +1674,7 @@
           suggestedName: filename,
           types: [{ description: "Audio file", accept: { "audio/*": [`.${ext}`] } }],
         });
-        const blob = await (await fetch(playerAudio.src)).blob();
+        const blob = await (await fetch(url)).blob();
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
@@ -1198,11 +1687,17 @@
 
     if (await saveViaPicker()) return;
     const a = document.createElement("a");
-    a.href = playerAudio.src;
+    a.href = url;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  playerDownload.addEventListener("click", (e) => {
+    e.preventDefault();
+    const filename = playerDownload.download || "output.wav";
+    downloadAudio(playerAudio.src, filename);
   });
 
   generateBtn.addEventListener("click", async () => {
@@ -1212,6 +1707,7 @@
       return;
     }
     generateBtn.disabled = true;
+    showPlayerLoading();
     try {
       const data = await apiFetch("/api/tts", {
         method: "POST",
@@ -1230,10 +1726,310 @@
     } catch (err) {
       console.error("Generation failed:", err);
       showAlert(err.message || "Generation failed.");
+      hidePlayer();
     } finally {
       generateBtn.disabled = false;
     }
   });
+
+  // ---------- History tab ----------
+
+  const historyList = document.getElementById("history-list");
+  const historyEmpty = document.getElementById("history-empty");
+  const historySearch = document.getElementById("history-search");
+  const historyDeleteAll = document.getElementById("history-delete-all");
+  const historyContextMenu = document.getElementById("history-context-menu");
+  const confirmModal = document.getElementById("confirm-modal");
+  const confirmTitle = document.getElementById("confirm-modal-title");
+  const confirmMessage = document.getElementById("confirm-message");
+  const confirmOk = document.getElementById("confirm-ok");
+  const confirmCancel = document.getElementById("confirm-cancel");
+
+  let historyItems = [];
+  let historyPlaying = null;
+  let pendingConfirm = null;
+  let currentHistoryFile = null;
+  let historyPollTimer = null;
+  let lastHistoryFingerprint = null;
+
+  function stopHistoryPolling() {
+    if (historyPollTimer) clearInterval(historyPollTimer);
+    historyPollTimer = null;
+  }
+
+  function setHistoryPlayState(btn, icon, playing) {
+    icon.textContent = playing ? "pause" : "play_arrow";
+    btn.setAttribute("aria-label", playing ? "Pause" : "Play");
+    btn.classList.toggle("playing", playing);
+  }
+
+  function stopHistoryPlayback() {
+    if (historyPlaying && historyPlaying.audio) {
+      historyPlaying.audio.pause();
+      setHistoryPlayState(historyPlaying.btn, historyPlaying.icon, false);
+      historyPlaying = null;
+    }
+  }
+
+  const formatHistoryRate = (hz) => {
+    if (hz == null) return "";
+    return `${Number((hz / 1000).toFixed(1))} kHz`;
+  };
+
+  async function loadHistory() {
+    try {
+      const data = await apiFetch("/api/history");
+      const items = Array.isArray(data.items) ? data.items : [];
+      const fingerprint = JSON.stringify(items);
+      if (fingerprint === lastHistoryFingerprint) return;
+      historyItems = items;
+      lastHistoryFingerprint = fingerprint;
+      renderHistory();
+    } catch (err) {
+      console.error("Failed to load history:", err);
+      historyItems = [];
+    }
+  }
+
+  function renderHistory() {
+    const query = historySearch.value.trim().toLowerCase();
+    const filtered = historyItems.filter((item) => {
+      const hay = [item.filename, item.voice_name, item.time, item.sample_rate, item.format]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(query);
+    });
+
+    historyEmpty.hidden = filtered.length > 0;
+    historyEmpty.textContent =
+      historyItems.length === 0
+        ? "No history yet"
+        : "No history matches your search";
+
+    const fragment = document.createDocumentFragment();
+    filtered.forEach((item) => fragment.appendChild(buildHistoryItem(item)));
+    historyList.replaceChildren(fragment);
+  }
+
+  function buildHistoryItem(item) {
+    const li = document.createElement("li");
+    li.className = "history-item";
+    li.dataset.filename = item.filename;
+
+    const top = document.createElement("div");
+    top.className = "history-item__top";
+
+    const avatar = document.createElement("span");
+    avatar.className = "history-item__avatar";
+    const img = document.createElement("img");
+    img.alt = "";
+    img.src = item.icon_url || "/gui/assets/avatar.svg";
+    img.addEventListener("error", () => {
+      if (img.src !== new URL("/gui/assets/avatar.svg", location.href).href) {
+        img.src = "/gui/assets/avatar.svg";
+      }
+    });
+    avatar.appendChild(img);
+
+    const name = document.createElement("span");
+    name.className = "history-item__name";
+    name.textContent = item.voice_name || item.filename;
+
+    top.append(avatar, name);
+
+    const meta = document.createElement("div");
+    meta.className = "history-item__meta";
+    meta.textContent = [
+      formatHistoryRate(item.sample_rate),
+      item.format ? item.format.toUpperCase() : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    const bottom = document.createElement("div");
+    bottom.className = "history-item__bottom";
+
+    const time = document.createElement("span");
+    time.className = "history-item__time";
+    time.textContent = item.time ? item.time.replace("_", " ") : "";
+
+    const actions = document.createElement("div");
+    actions.className = "history-item__actions";
+
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "history-item__play";
+    const playIcon = document.createElement("span");
+    playIcon.className = "material-symbols-rounded";
+    playIcon.textContent = "play_arrow";
+    play.appendChild(playIcon);
+    play.setAttribute("aria-label", "Play");
+
+    const download = document.createElement("button");
+    download.type = "button";
+    download.className = "history-item__download";
+    const dlIcon = document.createElement("span");
+    dlIcon.className = "material-symbols-rounded";
+    dlIcon.textContent = "download";
+    download.appendChild(dlIcon);
+    download.setAttribute("aria-label", "Download");
+
+    play.addEventListener("click", () =>
+      playHistoryAudio(item, li, play, playIcon)
+    );
+    download.addEventListener("click", (e) => {
+      e.stopPropagation();
+      downloadAudio(item.url, item.filename);
+    });
+
+    actions.append(play, download);
+    bottom.append(time, actions);
+    li.append(top, meta, bottom);
+
+    li.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      currentHistoryFile = item.filename;
+      showHistoryMenu(e.clientX, e.clientY);
+    });
+
+    return li;
+  }
+
+  function playHistoryAudio(item, li, btn, icon) {
+    li._audio = li._audio || new Audio(item.url);
+    const audio = li._audio;
+    audio.onended = () => {
+      if (historyPlaying && historyPlaying.audio === audio) historyPlaying = null;
+      setHistoryPlayState(btn, icon, false);
+    };
+    audio.onerror = () => setHistoryPlayState(btn, icon, false);
+
+    if (historyPlaying && historyPlaying.audio && historyPlaying.audio !== audio) {
+      historyPlaying.audio.pause();
+      setHistoryPlayState(historyPlaying.btn, historyPlaying.icon, false);
+      historyPlaying = null;
+    }
+
+    if (audio.paused) {
+      audio
+        .play()
+        .then(() => {
+          setHistoryPlayState(btn, icon, true);
+          historyPlaying = { btn, icon, audio };
+        })
+        .catch((err) => {
+          console.error("Failed to play history audio:", err);
+          setHistoryPlayState(btn, icon, false);
+        });
+    } else {
+      audio.pause();
+      setHistoryPlayState(btn, icon, false);
+      if (historyPlaying && historyPlaying.audio === audio) historyPlaying = null;
+    }
+  }
+
+  function showHistoryMenu(x, y) {
+    historyContextMenu.hidden = false;
+    historyContextMenu.style.left = `${Math.min(x, window.innerWidth - 170)}px`;
+    historyContextMenu.style.top = `${Math.min(y, window.innerHeight - 120)}px`;
+  }
+
+  function hideHistoryMenu() {
+    historyContextMenu.hidden = true;
+  }
+
+  historyContextMenu.querySelectorAll(".context-menu__item").forEach((item) => {
+    item.addEventListener("click", () => {
+      if (item.dataset.action === "delete" && currentHistoryFile) {
+        openConfirm({
+          title: "Delete file",
+          message: `This will delete output file ${currentHistoryFile}`,
+          confirmLabel: "Delete",
+          onConfirm: () => deleteHistoryFile(currentHistoryFile),
+        });
+      }
+      hideHistoryMenu();
+    });
+  });
+
+  const openConfirm = ({
+    title = "Confirm",
+    message = "",
+    confirmLabel = "Confirm",
+    onConfirm = null,
+  }) => {
+    confirmTitle.textContent = title;
+    confirmMessage.textContent = message;
+    confirmOk.textContent = confirmLabel;
+    pendingConfirm = typeof onConfirm === "function" ? onConfirm : null;
+    confirmModal.hidden = false;
+    confirmModal.classList.remove("closing");
+    confirmModal.classList.add("open");
+  };
+
+  const closeConfirm = () => {
+    if (confirmModal.hidden) return;
+    confirmModal.classList.add("closing");
+    setTimeout(() => {
+      confirmModal.classList.remove("open", "closing");
+      confirmModal.hidden = true;
+      pendingConfirm = null;
+    }, 120);
+  };
+
+  confirmOk.addEventListener("click", () => {
+    const cb = pendingConfirm;
+    closeConfirm();
+    if (cb) cb();
+  });
+
+  confirmCancel.addEventListener("click", closeConfirm);
+  confirmModal.querySelector(".modal__backdrop").addEventListener("click", closeConfirm);
+
+  historyDeleteAll.addEventListener("click", () => {
+    openConfirm({
+      title: "Delete history",
+      message: "This will delete all of the output files. Do you really want to delete them?",
+      confirmLabel: "Delete",
+      onConfirm: deleteAllHistory,
+    });
+  });
+
+  async function deleteAllHistory() {
+    try {
+      const res = await fetch("/api/history", { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error((data && data.detail) || `HTTP ${res.status}`);
+      }
+      stopHistoryPlayback();
+      await loadHistory();
+    } catch (err) {
+      console.error("Failed to delete history:", err);
+      showAlert(err.message || "Failed to delete history.");
+    }
+  }
+
+  async function deleteHistoryFile(filename) {
+    try {
+      const res = await fetch(`/api/history/${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error((data && data.detail) || `HTTP ${res.status}`);
+      }
+      stopHistoryPlayback();
+      await loadHistory();
+    } catch (err) {
+      console.error("Failed to delete history file:", err);
+      showAlert(err.message || "Failed to delete history file.");
+    }
+  }
+
+  historySearch.addEventListener("input", renderHistory);
 
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".dropdown")) closeAllDropdowns();
@@ -1241,15 +2037,18 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      if (!confirmModal.hidden) closeConfirm();
       if (!restartModal.hidden) {
         closeRestartModal();
         closeSettings();
       }
       if (!alertModal.hidden) closeAlert();
       if (!emotionModal.hidden) closeEmotionModal();
+      if (!creditsModal.hidden) closeCreditsModal();
       if (!voiceModal.hidden) closeVoiceModal();
       if (!settingsModal.hidden) closeSettings();
       hideVoiceMenu();
+      hideHistoryMenu();
       closeAllDropdowns();
     }
   });

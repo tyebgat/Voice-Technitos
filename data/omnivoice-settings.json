@@ -2,7 +2,7 @@
   "_comment_model": "------OMNIVOICE MODEL-------",
   "model_id": "k2-fsa/OmniVoice",
   "_comment_tts_decoding": "------DECODING-------",
-  "num_step": 32,
+  "num_step": 55,
   "denoise": true,
   "guidance_scale": 2.0,
   "t_shift": 0.1,
@@ -17,7 +17,7 @@
   "preprocess_prompt": true,
   "postprocess_output": true,
   "pad_duration": 0.1,
-  "fade_duration": 0.1,
+  "fade_duration": 0,
   "_comment_tts_longform": "------LONG-FORM GENERATION-------",
   "audio_chunk_duration": 15.0,
   "audio_chunk_threshold": 30.0

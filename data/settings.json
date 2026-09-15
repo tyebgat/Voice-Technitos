@@ -1,7 +1,7 @@
 {
   "_comment_general": "------GENERAL SETTINGS-------",
   "tts_service": "omnivoice",
-  "default_voice": "Gawr Gura",
+  "default_voice": "Rafa",
   "_comment_server": "------SERVER SETTINGS-------",
   "host": "127.0.0.1",
   "port": 8078,
