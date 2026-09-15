@@ -20,6 +20,9 @@
       Voice Technitos
     </button>
     <nav class="topbar__actions">
+      <button id="btn-terminal" class="icon-btn" aria-label="Terminal" title="Terminal">
+        <span class="material-symbols-rounded">terminal</span>
+      </button>
       <button id="btn-settings" class="icon-btn" aria-label="Settings">
         <span class="material-symbols-rounded">settings</span>
       </button>
@@ -99,12 +102,12 @@
         <h2 class="section-label">Output format</h2>
         <div class="dropdown" id="output-format">
           <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
-            <span class="dropdown__value">mp3</span>
+            <span class="dropdown__value">wav</span>
             <span class="material-symbols-rounded dropdown__chevron">expand_more</span>
           </button>
           <ul class="dropdown__menu" role="listbox">
-            <li class="dropdown__item" role="option" data-value="mp3" aria-selected="true">mp3</li>
-            <li class="dropdown__item" role="option" data-value="wav">wav</li>
+            <li class="dropdown__item" role="option" data-value="wav" aria-selected="true">wav</li>
+            <li class="dropdown__item" role="option" data-value="mp3">mp3</li>
             <li class="dropdown__item" role="option" data-value="flac">flac</li>
             <li class="dropdown__item" role="option" data-value="opus">opus</li>
             <li class="dropdown__item" role="option" data-value="ogg">ogg</li>
@@ -237,20 +240,6 @@
       <h2 id="settings-modal-title" class="modal__title">Voice Technitus -- Settings</h2>
 
       <div class="modal__body">
-        <div class="modal__group">
-          <h3 class="section-label">App language</h3>
-          <div class="dropdown" id="app-language">
-            <button type="button" class="dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
-              <span class="dropdown__value">English</span>
-              <span class="material-symbols-rounded dropdown__chevron">expand_more</span>
-            </button>
-            <ul class="dropdown__menu" role="listbox">
-              <li class="dropdown__item" role="option" data-value="en" aria-selected="true">English</li>
-              <li class="dropdown__item" role="option" data-value="es">Spanish</li>
-            </ul>
-          </div>
-        </div>
-
         <div class="modal__group">
           <h3 class="section-label">TTS service</h3>
           <div class="dropdown" id="tts-service">
@@ -417,6 +406,12 @@
         <span class="loader loader--bubbles"></span>
         <span class="loader loader--squares"></span>
         <span class="loader loader--spinner"></span>
+      </div>
+      <div id="bootstrap-download" class="bootstrap__download" hidden>
+        <div class="bootstrap__download-track">
+          <div id="bootstrap-download-bar" class="bootstrap__download-bar"></div>
+        </div>
+        <span id="bootstrap-download-text" class="bootstrap__download-text">Downloading 0%</span>
       </div>
       <p id="bootstrap-tip" class="bootstrap__tip"></p>
       <p id="bootstrap-error" class="bootstrap__error" hidden></p>

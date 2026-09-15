@@ -275,12 +275,14 @@ class TTSHandler:
 
             def update(self, n=1):
                 result = super().update(n)
-                total = getattr(self, "total", None)
-                if getattr(self, "unit", "") == "B" and total:
-                    self._vt_report(
-                        self._vt_baseline
-                        + (self.n / total) * (100.0 / (total_files or 1))
-                    )
+                total = getattr(self, "total", None) or 0
+                done = getattr(self, "n", 0) or 0
+                if total > 0 and done > 0:
+                    if getattr(self, "unit", "") == "B" and total_files:
+                        pct = self._vt_baseline + (done / total) * (100.0 / total_files)
+                    else:
+                        pct = (done / total) * 100.0
+                    self._vt_report(max(0.0, min(100.0, pct)))
                 return result
 
         return _HubProgress

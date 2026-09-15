@@ -1,14 +1,17 @@
+import asyncio
+import json
 import os
 import re
 import threading
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import BaseModel
@@ -26,6 +29,23 @@ VOICES_DIR = os.path.join(DATA_DIR, "voice-library")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(VOICES_DIR, exist_ok=True)
+
+# In-memory log ring buffer exposed to the GUI terminal window so the server
+# output is visible even when file logging is disabled.
+TERMINAL_MAX_LINES = 4000
+_terminal_lines: deque = deque(maxlen=TERMINAL_MAX_LINES)
+
+
+def _terminal_sink(message):
+    _terminal_lines.append(message)
+
+
+logger.add(
+    _terminal_sink,
+    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
+    level=settings.get("log_level", "INFO"),
+    enqueue=True,
+)
 
 # The TTS service is created lazily (on the first /api/initialize call) so that
 # the bootstrap/loading screen shown by the GUI can drive the initialization
@@ -145,6 +165,12 @@ class SettingsReset(BaseModel):
     section: Optional[str] = None  # reset one section, or all when omitted
 
 
+class LogEvent(BaseModel):
+    area: Optional[str] = "app"
+    event: Optional[str] = "event"
+    detail: Optional[str] = ""
+
+
 def _services_info() -> dict:
     return {
         name: {"display": spec["display"], "param_keys": list(spec["param_keys"])}
@@ -197,6 +223,43 @@ def index():
     except Exception as e:
         logger.exception(f"GET / failed: {e}")
         raise HTTPException(500, detail=str(e))
+
+
+# Web UI: standalone terminal page showing the live server log
+@app.get("/terminal")
+def terminal_page():
+    try:
+        path = os.path.join(GUI_DIR, "terminal.html")
+        if not os.path.exists(path):
+            raise HTTPException(404, detail="Terminal page not found.")
+        return FileResponse(path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"GET /terminal failed: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/api/terminal/stream")
+async def terminal_stream(request: Request):
+    """Stream the server log to the terminal page over Server-Sent Events."""
+
+    async def event_gen():
+        index = 0
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                lines = _terminal_lines
+                while index < len(lines):
+                    payload = json.dumps({"line": lines[index]}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+                    index += 1
+                await asyncio.sleep(0.4)
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
 # API: status
@@ -355,6 +418,23 @@ def api_shutdown():
         raise HTTPException(500, detail=str(e))
 
 
+# API: frontend event logging (used by the GUI to report UI events)
+@app.post("/api/log")
+def api_log(request: LogEvent):
+    try:
+        area = (request.area or "app").strip() or "app"
+        event = (request.event or "event").strip() or "event"
+        detail = (request.detail or "").strip()
+        message = f"[gui:{area}] {event}" + (f" | {detail}" if detail else "")
+        logger.info(message)
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"POST /api/log failed: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
 # API: voice library
 @app.get("/api/voices")
 def list_voices():
@@ -506,11 +586,19 @@ def _find_voice_dir(voice_name: str):
 
 def _history_items() -> list:
     try:
+        files = [
+            name
+            for name in os.listdir(OUTPUT_DIR)
+            if os.path.isfile(os.path.join(OUTPUT_DIR, name))
+        ]
+        files.sort(
+            key=lambda name: os.path.getmtime(os.path.join(OUTPUT_DIR, name)),
+            reverse=True,
+        )
+
         items = []
-        for name in sorted(os.listdir(OUTPUT_DIR)):
+        for name in files:
             path = os.path.join(OUTPUT_DIR, name)
-            if not os.path.isfile(path):
-                continue
 
             m = OUTPUT_NAME_RE.match(name)
             if m:

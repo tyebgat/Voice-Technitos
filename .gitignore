@@ -6,3 +6,4 @@ data/logs/
 data/output/
 /__pycache__
 /data/voice-library
+/dist/

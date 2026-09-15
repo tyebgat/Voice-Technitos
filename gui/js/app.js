@@ -22,6 +22,23 @@
 
   setTheme(document.documentElement.dataset.theme || "dark");
 
+  const btnTerminal = document.getElementById("btn-terminal");
+  btnTerminal.addEventListener("click", async () => {
+    const viaBridge =
+      window.pywebview &&
+      window.pywebview.api &&
+      typeof window.pywebview.api.open_terminal_window === "function";
+    if (viaBridge) {
+      try {
+        await window.pywebview.api.open_terminal_window();
+        return;
+      } catch (err) {
+        console.error("Failed to open the terminal window:", err);
+      }
+    }
+    window.open("/terminal", "_blank", "noopener");
+  });
+
   const settingsModal = document.getElementById("settings-modal");
   const btnSettings = document.getElementById("btn-settings");
   const restartModal = document.getElementById("restart-modal");
@@ -279,8 +296,12 @@
       btn.classList.toggle("active", btn.dataset.tab === name)
     );
     if (name === "voices") loadVoices();
-    if (name === "settings") renderSettingsTab().catch((err) => console.error("Failed to render settings tab:", err));
+    if (name === "settings") {
+      logSettings("tab-open");
+      renderSettingsTab().catch((err) => console.error("Failed to render settings tab:", err));
+    }
     if (name === "history") {
+      logEvent("tab_opened");
       stopHistoryPolling();
       loadHistory();
       historyPollTimer = setInterval(loadHistory, 3000);
@@ -517,7 +538,7 @@
   const sampleRate = document.getElementById("sample-rate");
 
   let currentSpeed = Number(sliderSpeed.value);
-  let currentOutputFormat = "mp3";
+  let currentOutputFormat = "wav";
   let currentSampleRate = 48000;
 
   sliderSpeed.addEventListener("change", () => {
@@ -556,7 +577,7 @@
     document.querySelectorAll(".dropdown").forEach(closeDropdown);
   };
 
-  document.querySelectorAll(".dropdown").forEach((dd) => {
+  const initDropdown = (dd) => {
     const trigger = dd.querySelector(".dropdown__trigger");
     const value = dd.querySelector(".dropdown__value");
     const items = Array.from(dd.querySelectorAll(".dropdown__item"));
@@ -577,6 +598,16 @@
       if (item) setSelected(item);
     };
 
+    dd._setSilent = (val) => {
+      const item = items.find((i) => i.dataset.value === String(val));
+      if (!item) return;
+      items.forEach((i) => {
+        const selected = i === item;
+        i.setAttribute("aria-selected", String(selected));
+        if (selected) value.textContent = i.textContent;
+      });
+    };
+
     trigger.addEventListener("click", () => {
       const open = dd.classList.toggle("open");
       trigger.setAttribute("aria-expanded", String(open));
@@ -588,7 +619,9 @@
         closeDropdown(dd);
       })
     );
-  });
+  };
+
+  document.querySelectorAll(".dropdown").forEach(initDropdown);
 
   // ---------- Settings tab (generation parameters) ----------
 
@@ -597,11 +630,6 @@
 
   const SETTING_SCHEMAS = {
     omnivoice: {
-      model_id: {
-        control: "text",
-        label: "Model ID",
-        desc: "Hugging Face repository ID of the OmniVoice model to load.",
-      },
       num_step: {
         control: "slider",
         min: 1,
@@ -697,6 +725,58 @@
         desc: "Estimated audio duration (seconds) above which long-form chunking is activated.",
       },
     },
+    "pocket-tts": {
+      language: {
+        control: "dropdown",
+        label: "Language",
+        options: [
+          "english_2026-01",
+          "english_2026-04",
+          "english",
+          "french_24l",
+          "german_24l",
+          "portuguese_24l",
+          "italian_24l",
+          "spanish_24l",
+        ],
+        desc: "Built-in language config to load. The '24l' variants are larger, non-distilled models offered as a preview. Takes effect when the model is (re)initialized.",
+      },
+      temp: {
+        control: "number",
+        step: 0.05,
+        desc: "Sampling temperature for generation. Leave empty (None) to use the model's recommended default (0.3 for the English model, 0.7 otherwise).",
+      },
+      sampler_decode_steps: {
+        control: "slider",
+        min: 1,
+        max: 8,
+        step: 1,
+        desc: "Number of generation steps (default: 1).",
+      },
+      noise_clamp: {
+        control: "number",
+        step: 0.05,
+        desc: "Maximum value for noise sampling. Leave empty for no clamping.",
+      },
+      eos_threshold: {
+        control: "number",
+        step: 0.1,
+        desc: "Threshold for end-of-sequence detection. Signals the model to stop early once detected.",
+      },
+      quantize: {
+        control: "toggle",
+        desc: "Enable int8 quantization when loading the model. Takes effect when the model is (re)initialized.",
+      },
+      truncate_voice: {
+        control: "toggle",
+        desc: "Trim the cloning reference to a short phrase when building the voice.",
+      },
+      frames_after_eos: {
+        control: "number",
+        step: 1,
+        desc: "Extra frames to generate after the end-of-sequence token is detected. Leave empty for the model default.",
+      },
+    },
   };
 
   const formatSettingName = (key, meta) => {
@@ -729,6 +809,14 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ config: { [service]: updates } }),
     });
+  };
+
+  const logSettings = (event, detail = "") => {
+    fetch("/api/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ area: "settings", event, detail: String(detail) }),
+    }).catch(() => {});
   };
 
   const fetchSettings = () => apiFetch("/api/settings");
@@ -782,6 +870,7 @@
       const parsed = parseFloat(input.value);
       saveSectionConfig(service, { [key]: parsed })
         .then(() => {
+          logSettings("setting-change", `${service}.${key}=${parsed}`);
           if (key === "speed") {
             sliderSpeed.value = parsed;
             speedValue.textContent = parsed.toFixed(1);
@@ -823,9 +912,9 @@
     label.appendChild(box);
 
     input.addEventListener("change", () => {
-      saveSectionConfig(service, { [key]: input.checked }).catch((err) =>
-        console.error("Failed to save setting:", err)
-      );
+      saveSectionConfig(service, { [key]: input.checked })
+        .then(() => logSettings("setting-change", `${service}.${key}=${input.checked}`))
+        .catch((err) => console.error("Failed to save setting:", err));
     });
 
     return label;
@@ -866,8 +955,65 @@
       }
       saveSectionConfig(service, { [key]: parsed })
         .then(() => {
+          logSettings("setting-change", `${service}.${key}=${parsed}`);
           if (parsed == null) input.value = "";
         })
+        .catch((err) => console.error("Failed to save setting:", err));
+    });
+
+    return wrap;
+  }
+
+  function buildDropdownRow(service, key, value, meta) {
+    const wrap = document.createElement("div");
+    wrap.className = "settings-input-row";
+
+    const label = document.createElement("label");
+    label.className = "form-label";
+    label.textContent = formatSettingName(key, meta);
+    const tip = settingsTip(meta.desc);
+    if (tip) label.appendChild(tip);
+    wrap.appendChild(label);
+
+    const dd = document.createElement("div");
+    dd.className = "dropdown";
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "dropdown__trigger";
+    trigger.setAttribute("aria-haspopup", "listbox");
+    trigger.setAttribute("aria-expanded", "false");
+
+    const valueSpan = document.createElement("span");
+    valueSpan.className = "dropdown__value";
+    trigger.appendChild(valueSpan);
+
+    const chevron = document.createElement("span");
+    chevron.className = "material-symbols-rounded dropdown__chevron";
+    chevron.textContent = "expand_more";
+    trigger.appendChild(chevron);
+    dd.appendChild(trigger);
+
+    const menu = document.createElement("ul");
+    menu.className = "dropdown__menu";
+    menu.setAttribute("role", "listbox");
+    (meta.options || []).forEach((opt) => {
+      const item = document.createElement("li");
+      item.className = "dropdown__item";
+      item.setAttribute("role", "option");
+      item.dataset.value = opt;
+      item.textContent = opt;
+      menu.appendChild(item);
+    });
+    dd.appendChild(menu);
+
+    wrap.appendChild(dd);
+    initDropdown(dd);
+    dd._setSilent(value);
+
+    dd.addEventListener("change", (e) => {
+      saveSectionConfig(service, { [key]: e.detail.value })
+        .then(() => logSettings("setting-change", `${service}.${key}=${e.detail.value}`))
         .catch((err) => console.error("Failed to save setting:", err));
     });
 
@@ -882,6 +1028,8 @@
         return buildSliderRow(service, key, value, meta);
       case "toggle":
         return buildToggleRow(service, key, value, meta);
+      case "dropdown":
+        return buildDropdownRow(service, key, value, meta);
       case "number":
         return buildInputRow(service, key, value, meta, {
           type: "number",
@@ -909,6 +1057,7 @@
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       try {
+        logSettings("restore-defaults", service);
         await apiFetch("/api/settings/reset", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -928,33 +1077,43 @@
 
   async function renderSettingsTab() {
     const data = await fetchSettings();
-    const service = "omnivoice";
-    const raw = (data.sections || {})[service] || {};
-    const schema = SETTING_SCHEMAS[service] || {};
-
     settingsTab.replaceChildren();
     const fragment = document.createDocumentFragment();
-    let category = null;
-    let rows = null;
 
-    for (const [key, value] of Object.entries(raw)) {
-      if (key.startsWith("_")) {
-        if (category) fragment.appendChild(category);
-        category = document.createElement("div");
-        category.className = "settings-category";
-        const heading = document.createElement("h3");
-        heading.className = "section-label";
-        heading.textContent = cleanCategoryHeader(value);
-        category.appendChild(heading);
-        rows = document.createElement("div");
-        category.appendChild(rows);
-      } else if (schema[key] && category) {
-        const row = buildSettingRow(service, key, value);
-        if (row) rows.appendChild(row);
+    const services = chosenService
+      ? [chosenService]
+      : Object.keys(SETTING_SCHEMAS);
+
+    for (const service of services) {
+      const raw = (data.sections || {})[service] || {};
+      const schema = SETTING_SCHEMAS[service] || {};
+
+      const block = document.createElement("div");
+      block.className = "settings-service";
+      let category = null;
+      let rows = null;
+
+      for (const [key, value] of Object.entries(raw)) {
+        if (key.startsWith("_")) {
+          if (category) block.appendChild(category);
+          category = document.createElement("div");
+          category.className = "settings-category";
+          const heading = document.createElement("h3");
+          heading.className = "section-label";
+          heading.textContent = cleanCategoryHeader(value);
+          category.appendChild(heading);
+          rows = document.createElement("div");
+          category.appendChild(rows);
+        } else if (schema[key] && category) {
+          const row = buildSettingRow(service, key, value);
+          if (row) rows.appendChild(row);
+        }
       }
+      if (category) block.appendChild(category);
+      block.appendChild(buildRestoreButton(service));
+      fragment.appendChild(block);
     }
-    if (category) fragment.appendChild(category);
-    fragment.appendChild(buildRestoreButton(service));
+
     settingsTab.appendChild(fragment);
   }
 
@@ -972,6 +1131,9 @@
   const bootError = document.getElementById("bootstrap-error");
   const bootH1 = document.getElementById("bootstrap-h1");
   const bootTip = document.getElementById("bootstrap-tip");
+  const bootDownload = document.getElementById("bootstrap-download");
+  const bootDownloadBar = document.getElementById("bootstrap-download-bar");
+  const bootDownloadText = document.getElementById("bootstrap-download-text");
   const loaders = Array.from(bootLoader.querySelectorAll(".loader"));
 
   const FADE_MS = 450;
@@ -1088,20 +1250,30 @@
     bootTip.style.opacity = "0";
     bootTip.textContent = "";
     setBootStatus("");
+    updateDownloadBar(false);
     showView(view);
+  };
+
+  const updateDownloadBar = (visible, pct) => {
+    if (!bootDownload) return;
+    bootDownload.hidden = !visible;
+    const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
+    if (bootDownloadBar) bootDownloadBar.style.width = `${clamped}%`;
+    if (bootDownloadText)
+      bootDownloadText.textContent = `Downloading ${Math.floor(clamped)}%`;
   };
 
   const updateBootStatus = (status) => {
     const display = status.service_display || status.service || "TTS";
+    const rawPct = Number(status.download_progress) || 0;
     const downloading =
-      status.download_state === "downloading" &&
-      (status.download_progress || 0) < 100;
+      status.download_state === "downloading" && rawPct < 100;
     if (downloading) {
-      setBootStatus(
-        `Downloading ${display} ${Math.floor(status.download_progress || 0)}%`
-      );
+      updateDownloadBar(true, rawPct);
+      setBootStatus(`Downloading ${display} model files…`);
       return;
     }
+    updateDownloadBar(false);
     if (status.model_state === "ready") {
       stopPolling();
       stopLoaderCycle();
@@ -1184,13 +1356,6 @@
       chosenService = s.tts_service || "omnivoice";
       emotionTagsBtn.hidden = chosenService !== "omnivoice";
       if (setupDropdown._setValue) setupDropdown._setValue(chosenService);
-
-      if (new URLSearchParams(location.search).get("preview") === "1") {
-        bootstrap.hidden = true;
-        loadVoices();
-        switchTab("settings");
-        return;
-      }
 
       if (s.skip_setup) {
         startInit(null);
@@ -1752,6 +1917,14 @@
   let historyPollTimer = null;
   let lastHistoryFingerprint = null;
 
+  const logEvent = (event, detail = "") => {
+    fetch("/api/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ area: "history", event, detail: String(detail) }),
+    }).catch(() => {});
+  };
+
   function stopHistoryPolling() {
     if (historyPollTimer) clearInterval(historyPollTimer);
     historyPollTimer = null;
@@ -1784,6 +1957,7 @@
       if (fingerprint === lastHistoryFingerprint) return;
       historyItems = items;
       lastHistoryFingerprint = fingerprint;
+      logEvent("history_loaded", `${items.length} item(s)`);
       renderHistory();
     } catch (err) {
       console.error("Failed to load history:", err);
@@ -1880,6 +2054,7 @@
     );
     download.addEventListener("click", (e) => {
       e.stopPropagation();
+      logEvent("download", item.filename);
       downloadAudio(item.url, item.filename);
     });
 
@@ -1891,6 +2066,7 @@
       e.preventDefault();
       e.stopPropagation();
       currentHistoryFile = item.filename;
+      logEvent("context_menu", item.filename);
       showHistoryMenu(e.clientX, e.clientY);
     });
 
@@ -1916,6 +2092,7 @@
       audio
         .play()
         .then(() => {
+          logEvent("play", item.filename);
           setHistoryPlayState(btn, icon, true);
           historyPlaying = { btn, icon, audio };
         })
@@ -1925,6 +2102,7 @@
         });
     } else {
       audio.pause();
+      logEvent("pause", item.filename);
       setHistoryPlayState(btn, icon, false);
       if (historyPlaying && historyPlaying.audio === audio) historyPlaying = null;
     }
@@ -2005,6 +2183,7 @@
         throw new Error((data && data.detail) || `HTTP ${res.status}`);
       }
       stopHistoryPlayback();
+      logEvent("all_deleted", `${data.deleted ?? 0} file(s)`);
       await loadHistory();
     } catch (err) {
       console.error("Failed to delete history:", err);
@@ -2013,6 +2192,9 @@
   }
 
   async function deleteHistoryFile(filename) {
+    const li = historyList.querySelector(
+      `[data-filename="${CSS.escape(filename)}"]`
+    );
     try {
       const res = await fetch(`/api/history/${encodeURIComponent(filename)}`, {
         method: "DELETE",
@@ -2022,6 +2204,8 @@
         throw new Error((data && data.detail) || `HTTP ${res.status}`);
       }
       stopHistoryPlayback();
+      logEvent("file_deleted", filename);
+      if (li) await animateHistoryItemRemoval(li);
       await loadHistory();
     } catch (err) {
       console.error("Failed to delete history file:", err);
@@ -2029,7 +2213,49 @@
     }
   }
 
-  historySearch.addEventListener("input", renderHistory);
+  function animateHistoryItemRemoval(li) {
+    return new Promise((resolve) => {
+      const transition =
+        "height 0.25s ease, padding-top 0.25s ease, padding-bottom 0.25s ease, " +
+        "border-top-width 0.25s ease, border-bottom-width 0.25s ease, " +
+        "margin-bottom 0.25s ease, transform 0.25s ease, opacity 0.2s ease";
+
+      li.style.transition = transition;
+      li.style.overflow = "hidden";
+      li.style.height = `${li.offsetHeight}px`;
+      void li.offsetHeight;
+
+      li.style.height = "0px";
+      li.style.paddingTop = "0px";
+      li.style.paddingBottom = "0px";
+      li.style.borderTopWidth = "0px";
+      li.style.borderBottomWidth = "0px";
+      li.style.marginBottom = "0px";
+      li.style.opacity = "0";
+      li.style.transform = "translateY(12px)";
+
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        li.remove();
+        resolve();
+      };
+      li.addEventListener(
+        "transitionend",
+        (e) => {
+          if (e.propertyName === "height" && e.target === li) finish();
+        },
+        { once: true }
+      );
+      setTimeout(finish, 450);
+    });
+  }
+
+  historySearch.addEventListener("input", () => {
+    logEvent("search", historySearch.value.trim() || "(clear)");
+    renderHistory();
+  });
 
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".dropdown")) closeAllDropdowns();

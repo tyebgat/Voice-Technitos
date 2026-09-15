@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Technitos - Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+      background: #0d1117;
+      color: #e6edf3;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .term__topbar {
+      flex: 0 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      background: #161b22;
+      border-bottom: 1px solid #21262d;
+      font-size: 13px;
+      user-select: none;
+    }
+
+    .term__title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      color: #8b949e;
+      letter-spacing: 0.4px;
+    }
+
+    .term__title::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #2da44e;
+      box-shadow: 0 0 6px rgba(45, 164, 78, 0.8);
+    }
+
+    .term__status {
+      font-size: 11px;
+      color: #6e7681;
+    }
+
+    .term__status--disconnected { color: #f85149; }
+
+    .term__output {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px 14px;
+      background: #0d1117;
+      line-height: 1.55;
+      font-size: 12.5px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .term__placeholder { color: #484f58; }
+
+    .term__placeholder::after {
+      content: "";
+      display: inline-block;
+      width: 7px;
+      height: 15px;
+      margin-left: 4px;
+      vertical-align: -2px;
+      background: #58a6ff;
+      animation: blink 1s steps(1) infinite;
+    }
+
+    @keyframes blink { 50% { opacity: 0; } }
+  </style>
+</head>
+<body>
+  <header class="term__topbar">
+    <span class="term__title">Voice Technitos &ndash; Server Terminal</span>
+    <span id="term-status" class="term__status">connecting&hellip;</span>
+  </header>
+  <div id="term-output" class="term__output"></div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const output = document.getElementById("term-output");
+      const status = document.getElementById("term-status");
+      let lineCount = 0;
+
+      const appendLine = (text) => {
+        if (lineCount === 0) output.textContent = "";
+        const div = document.createElement("div");
+        div.textContent = text;
+        output.appendChild(div);
+        lineCount += 1;
+
+        const nearBottom =
+          output.scrollHeight - output.scrollTop - output.clientHeight < 40;
+        if (nearBottom) output.scrollTop = output.scrollHeight;
+      };
+
+      const source = new EventSource("/api/terminal/stream");
+
+      source.onopen = () => {
+        status.textContent = "connected";
+        status.classList.remove("term__status--disconnected");
+      };
+
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          appendLine(data.line || "");
+        } catch (err) {
+          /* ignore malformed events */
+        }
+      };
+
+      source.onerror = () => {
+        status.textContent = "disconnected - retrying…";
+        status.classList.add("term__status--disconnected");
+      };
+    })();
+  </script>
+</body>
+</html>

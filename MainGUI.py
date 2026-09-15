@@ -1,4 +1,6 @@
+import os
 import socket
+import tempfile
 import threading
 import time
 
@@ -33,6 +35,26 @@ def wait_for_server(host: str, port: int, timeout: float = 30.0) -> bool:
     return False
 
 
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def build_window_icon() -> str:
+    """Convert icon.png to an .ico WinForms can load; returns the ico path ('' on failure)."""
+    source = os.path.join(APP_DIR, "icon.png")
+    if not os.path.isfile(source):
+        return ""
+    try:
+        from PIL import Image
+
+        target = os.path.join(tempfile.gettempdir(), "voice-technitos-icon.ico")
+        with Image.open(source) as img:
+            img.save(target, format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+        return target
+    except Exception as exc:
+        logger.warning(f"Could not build window icon from {source}: {exc}")
+        return ""
+
+
 def start_backend(host: str, port: int):
     import uvicorn
     from server import app
@@ -56,6 +78,8 @@ def start_backend(host: str, port: int):
 class Bridge:
     """JS bridge exposed to the GUI (via pywebview js_api)."""
 
+    port = None  # injected at startup so the bridge knows the server URL
+
     def close_application(self):
         import webview
 
@@ -73,6 +97,37 @@ class Bridge:
             webbrowser.open(url, new=2)
         except Exception as exc:
             logger.error(f"Failed to open {url}: {exc}")
+
+    def open_terminal_window(self):
+        import threading
+
+        import webview
+
+        def _create():
+            try:
+                win = getattr(self, "_terminal_window", None)
+                if win is not None and not win.events.closed.is_set():
+                    try:
+                        win.restore()
+                        win.focus()
+                    except Exception:
+                        pass
+                    return
+                url = f"http://{HOST}:{getattr(self, 'port', 8078)}/terminal"
+                win = webview.create_window(
+                    "Voice Technitos - Terminal",
+                    url=url,
+                    width=780,
+                    height=560,
+                    min_size=(480, 320),
+                )
+                win.events.closed += lambda: setattr(self, "_terminal_window", None)
+                self._terminal_window = win
+                logger.info(f"Opened terminal window ({url}).")
+            except Exception as exc:
+                logger.error(f"Failed to open the terminal window: {exc}")
+
+        threading.Thread(target=_create, name="terminal-window", daemon=True).start()
 
 
 def main():
@@ -104,15 +159,17 @@ def main():
 
         logger.info("Opening desktop window (pywebview)...")
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
+        bridge = Bridge()
+        bridge.port = port
         webview.create_window(
             "Voice Technitos",
             url=f"http://{HOST}:{port}",
             width=int(settings.get("window_width", 900)),
             height=int(settings.get("window_height", 720)),
             min_size=(640, 480),
-            js_api=Bridge(),
+            js_api=bridge,
         )
-        webview.start(gui="edgechromium")
+        webview.start(gui="edgechromium", icon=build_window_icon() or None)
 
         logger.info("Window closed; shutting down.")
     except Exception as e:
