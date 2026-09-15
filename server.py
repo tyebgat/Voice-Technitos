@@ -16,13 +16,13 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import BaseModel
 
-from paths import BASE_PATH
+from paths import BASE_PATH, RESOURCE_PATH
 from settings import Settings
 from TTSHandler import SERVICES, TTSHandler
 
 settings = Settings()
 
-GUI_DIR = os.path.join(BASE_PATH, "gui")
+GUI_DIR = os.path.join(RESOURCE_PATH, "gui")
 DATA_DIR = os.path.join(BASE_PATH, "data")
 OUTPUT_DIR = os.path.join(DATA_DIR, "output")
 VOICES_DIR = os.path.join(DATA_DIR, "voice-library")
@@ -44,7 +44,7 @@ logger.add(
     _terminal_sink,
     format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
     level=settings.get("log_level", "INFO"),
-    enqueue=True,
+    enqueue=False,
 )
 
 # The TTS service is created lazily (on the first /api/initialize call) so that

@@ -23,7 +23,10 @@ def setup_logging(
             "<level>{message}</level>"
         )
 
-        logger.add(sys.stderr, format=LOG_FORMAT, level=level, colorize=True, enqueue=True)
+        if sys.stderr is not None:
+            logger.add(sys.stderr, format=LOG_FORMAT, level=level, colorize=True, enqueue=True)
+        else:
+            logger.add(lambda message: None, format="{message}", level=level, enqueue=True)
 
         if not file_enabled:
             logger.info("File logging disabled (settings: logs=false).")
