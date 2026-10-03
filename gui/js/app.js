@@ -1207,6 +1207,7 @@
   let tipTimer = null;
   let tipSeq = 0;
   let tipIdx = 0;
+  let bootInitStart = 0;
 
   const showView = (view) => {
     [setupView, initView].forEach((v) =>
@@ -1292,13 +1293,23 @@
     showView(view);
   };
 
-  const updateDownloadBar = (visible, pct) => {
+  const updateDownloadBar = (visible, pct, text) => {
     if (!bootDownload) return;
     bootDownload.hidden = !visible;
     const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
     if (bootDownloadBar) bootDownloadBar.style.width = `${clamped}%`;
     if (bootDownloadText)
-      bootDownloadText.textContent = `Downloading ${Math.floor(clamped)}%`;
+      bootDownloadText.textContent = text ?? `Downloading ${Math.floor(clamped)}%`;
+  };
+
+  // Rough phase-based progress when no real download percentage is reported.
+  const estimatedInitProgress = (status) => {
+    if (status.model_state === "loading") {
+      // Walk 0 -> 90 over ~8 s so the bar feels active without a real number.
+      const elapsed = Math.min(8000, Date.now() - bootInitStart);
+      return Math.max(10, Math.min(90, (elapsed / 8000) * 90));
+    }
+    return 0;
   };
 
   const updateBootStatus = (status) => {
@@ -1311,8 +1322,8 @@
       setBootStatus(`Downloading ${display} model files…`);
       return;
     }
-    updateDownloadBar(false);
     if (status.model_state === "ready") {
+      updateDownloadBar(true, 100, "Ready");
       stopPolling();
       stopLoaderCycle();
       stopTipCycle();
@@ -1324,6 +1335,7 @@
       return;
     }
     if (status.model_state === "error") {
+      updateDownloadBar(false);
       stopLoaderCycle();
       stopTipCycle();
       setBootStatus(`Failed to initialize ${display}`);
@@ -1331,6 +1343,7 @@
       bootRetry.hidden = false;
       return;
     }
+    updateDownloadBar(true, estimatedInitProgress(status), "Initializing...");
     setBootStatus(`Initializing ${display}`);
   };
 
@@ -1351,6 +1364,7 @@
 
   const startInit = (service) => {
     displayBootView(initView);
+    bootInitStart = Date.now();
     setBootStatus(
       service ? `Initializing ${displayName(service)}` : "setting up your service..."
     );
