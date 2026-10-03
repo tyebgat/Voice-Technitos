@@ -63,6 +63,35 @@ OMNIVOICE_PARAMS = [
     "audio_chunk_threshold",
 ]
 
+# Windows reserves these device names for every path, regardless of extension,
+# so a folder called CON (or NUL, COM1, ...) cannot be created there. The
+# character filter below cannot catch them because they are plain letters and
+# digits, so they are rejected explicitly. Without this, a voice named "CON"
+# saves fine on Linux and then fails inside the packaged Windows .exe.
+_WINDOWS_RESERVED_NAMES = (
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def sanitize_voice_name(name: str) -> str:
+    """Reduce a user-supplied voice name to a portable folder name.
+
+    Strips characters that are illegal on Windows (``<>:"/\\|?*``) and trailing
+    dots, then rejects the reserved Windows device names. Raises ``ValueError``
+    if the result is empty or reserved.
+    """
+    safe = re.sub(r'[^a-zA-Z0-9 _-]', '', name).strip().rstrip('.')
+    if not safe:
+        raise ValueError("Invalid voice name.")
+    # Windows matches the reserved names case-insensitively, and also applies
+    # the rule to the stem before the first dot.
+    if safe.split(".")[0].strip().upper() in _WINDOWS_RESERVED_NAMES:
+        raise ValueError(f"'{safe}' is a reserved Windows device name. Please pick another.")
+    return safe
+
+
 # Available TTS services. ``config_section`` selects which settings file feeds
 # the service; ``model_config_key`` picks the model id out of that section.
 SERVICES = {
@@ -375,18 +404,6 @@ class TTSHandler:
             logger.exception(f"Failed to download Pocket TTS assets: {e}")
             raise
 
-    def unload_model(self):
-        try:
-            with self._model_lock:
-                self.model = None
-                self.model_state = "unloaded"
-            self._voice_cache.clear()
-            self._voice_cache_order.clear()
-            logger.info(f"{self.service} model unloaded.")
-        except Exception as e:
-            logger.exception(f"Failed to unload {self.service} model: {e}")
-            raise
-
     # status 
     def status(self) -> dict:
         return {
@@ -429,14 +446,6 @@ class TTSHandler:
             return False
 
     # voice library
-    @staticmethod
-    def _resolve_reference_path(path: str):
-        if not path:
-            return None
-        if os.path.isabs(path):
-            return os.path.abspath(path)
-        return os.path.abspath(os.path.join(BASE_PATH, path))
-
     @staticmethod
     def _voice_icon(vdir: str):
         """Return the icon file path inside ``vdir`` (an ICON_FILES match), or None."""
@@ -515,9 +524,11 @@ class TTSHandler:
         reference. Any previously stored icon is replaced; unknown MIME types are
         rejected with a warning (audio is saved regardless).
         """
-        safe = re.sub(r'[^a-zA-Z0-9 _-]', '', name).strip().rstrip('.')
-        if not safe:
-            safe = "voice"
+        try:
+            safe = sanitize_voice_name(name)
+        except ValueError as e:
+            logger.warning(f"Could not save voice preset '{name}': {e}")
+            raise
         try:
             existing = {
                 e.casefold(): e
@@ -590,9 +601,7 @@ class TTSHandler:
             final_name = name
             rename_to = (new_name or "").strip()
             if rename_to and rename_to != name:
-                safe = re.sub(r'[^a-zA-Z0-9 _-]', '', rename_to).strip().rstrip('.')
-                if not safe:
-                    raise ValueError("Invalid voice name.")
+                safe = sanitize_voice_name(rename_to)
                 existing = {
                     e.casefold(): e
                     for e in os.listdir(self.voices_dir)

@@ -23,19 +23,7 @@
   setTheme(document.documentElement.dataset.theme || "dark");
 
   const btnTerminal = document.getElementById("btn-terminal");
-  btnTerminal.addEventListener("click", async () => {
-    const viaBridge =
-      window.pywebview &&
-      window.pywebview.api &&
-      typeof window.pywebview.api.open_terminal_window === "function";
-    if (viaBridge) {
-      try {
-        await window.pywebview.api.open_terminal_window();
-        return;
-      } catch (err) {
-        console.error("Failed to open the terminal window:", err);
-      }
-    }
+  btnTerminal.addEventListener("click", () => {
     window.open("/terminal", "_blank", "noopener");
   });
 
@@ -138,19 +126,7 @@
 
   const openExternal = (url) => {
     if (!url) return;
-    if (
-      window.pywebview &&
-      window.pywebview.api &&
-      typeof window.pywebview.api.open_external === "function"
-    ) {
-      try {
-        window.pywebview.api.open_external(url);
-      } catch (err) {
-        console.error("Failed to open external link:", err);
-      }
-    } else {
-      window.open(url, "_blank", "noopener");
-    }
+    window.open(url, "_blank", "noopener");
   };
 
   btnCredits.addEventListener("click", openCreditsModal);
@@ -238,22 +214,10 @@
       } catch (err) {
         console.error("Failed to save settings before closing:", err);
       }
-      const viaBridge =
-        window.pywebview &&
-        window.pywebview.api &&
-        typeof window.pywebview.api.close_application === "function";
-      if (viaBridge) {
-        try {
-          await window.pywebview.api.close_application();
-        } catch (err) {
-          console.error("Failed to close the application:", err);
-        }
-      } else {
-        try {
-          await apiFetch("/api/shutdown", { method: "POST" });
-        } catch (err) {
-          /* the app may close before the response arrives */
-        }
+      try {
+        await apiFetch("/api/shutdown", { method: "POST" });
+      } catch (err) {
+        /* the server exits before the response arrives */
       }
     });
 
@@ -382,31 +346,75 @@
       last = m.index + token.length;
     }
     html += escaped.slice(last);
+    // A newline is stored as a <br>. That is what innerText reports back as
+    // "\n" under white-space: pre-wrap, so the round trip through render() is
+    // lossless.
     return html.replace(/\n/g, "<br>");
+  };
+
+  // The editor's DOM is rebuilt on every edit so <emotion> tags can be
+  // re-highlighted, which destroys the caret. To put it back we translate
+  // between DOM points and offsets in the plain text, where a <br> counts as
+  // one character (the newline it renders as).
+  const walkContent = () => {
+    const walker = document.createTreeWalker(
+      editor,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT
+    );
+    const nodes = [];
+    let pos = 0;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.nodeType !== Node.TEXT_NODE && node.nodeName !== "BR") continue;
+      const len = node.nodeType === Node.TEXT_NODE ? node.length : 1;
+      nodes.push({ node, start: pos, len });
+      pos += len;
+    }
+    return nodes;
+  };
+
+  const totalOf = (nodes) =>
+    nodes.length ? nodes[nodes.length - 1].start + nodes[nodes.length - 1].len : 0;
+
+  // Which child of `container` holds `node`, or -1 if it is not inside.
+  // Needed because a highlighted tag puts the caret's container inside a
+  // <span>, not directly under the editor.
+  const childIndexIn = (node, container) => {
+    let n = node;
+    while (n.parentNode && n.parentNode !== container) n = n.parentNode;
+    return n.parentNode === container
+      ? Array.prototype.indexOf.call(container.childNodes, n)
+      : -1;
   };
 
   const captureOffsets = () => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return null;
     const range = sel.getRangeAt(0);
-    const mapping = [];
-    const walker = document.createTreeWalker(
-      editor,
-      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT
-    );
-    let pos = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (node.nodeType !== Node.TEXT_NODE && node.nodeName !== "BR") continue;
-      const len = node.nodeType === Node.TEXT_NODE ? node.length : 1;
-      mapping.push({ node, start: pos, len });
-      pos += len;
-    }
+    const nodes = walkContent();
+    const total = totalOf(nodes);
+
+    // Next to a line break the caret is not in a text node: its container is
+    // an element and the offset is a child index. Both shapes must resolve.
     const locate = (container, offset) => {
-      const entry = mapping.find((m) => m.node === container);
-      if (!entry) return pos;
-      return entry.start + Math.min(Math.max(0, offset), entry.len);
+      if (container.nodeType === Node.TEXT_NODE) {
+        const entry = nodes.find((n) => n.node === container);
+        return entry
+          ? entry.start + Math.min(Math.max(0, offset), entry.len)
+          : total;
+      }
+      const wanted = Math.min(
+        Math.max(0, offset),
+        container.childNodes.length
+      );
+      for (const entry of nodes) {
+        const i = childIndexIn(entry.node, container);
+        if (i >= wanted) return entry.start;
+      }
+      // Past the last child: the caret belongs at the very end.
+      return total;
     };
+
     return {
       start: locate(range.startContainer, range.startOffset),
       end: locate(range.endContainer, range.endOffset),
@@ -416,31 +424,29 @@
   const restoreOffsets = (offsets) => {
     const sel = window.getSelection();
     if (!sel) return;
+    const nodes = walkContent();
+    const total = totalOf(nodes);
+
+    const pointAt = (offset) => {
+      const want = Math.min(Math.max(0, offset), total);
+      for (const entry of nodes) {
+        if (want > entry.start + entry.len) continue;
+        if (entry.node.nodeType === Node.TEXT_NODE)
+          return [entry.node, want - entry.start];
+        // A <br> has no children, so an offset inside it throws IndexSizeError.
+        // Anchor on the parent's child list, on the correct side of the break.
+        const parent = entry.node.parentNode;
+        const i = Array.prototype.indexOf.call(parent.childNodes, entry.node);
+        return [parent, want > entry.start ? i + 1 : i];
+      }
+      return [editor, editor.childNodes.length];
+    };
+
+    const [startNode, startOffset] = pointAt(offsets.start);
+    const [endNode, endOffset] = pointAt(offsets.end);
     const range = document.createRange();
-    let start = null;
-    let end = null;
-    const walker = document.createTreeWalker(
-      editor,
-      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT
-    );
-    let pos = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (node.nodeType !== Node.TEXT_NODE && node.nodeName !== "BR") continue;
-      const len = node.nodeType === Node.TEXT_NODE ? node.length : 1;
-      if (start === null && offsets.start <= pos + len) {
-        start = [node, Math.min(len, Math.max(0, offsets.start - pos))];
-      }
-      if (end === null && offsets.end <= pos + len) {
-        end = [node, Math.min(len, Math.max(0, offsets.end - pos))];
-      }
-      if (start && end) break;
-      pos += len;
-    }
-    if (start) range.setStart(start[0], start[1]);
-    else range.setStart(editor, 0);
-    if (end) range.setEnd(end[0], end[1]);
-    else range.collapse(true);
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
     sel.removeAllRanges();
     sel.addRange(range);
   };
@@ -1829,6 +1835,8 @@
   playerAudio.addEventListener("ended", () => setPlayIcon(false));
 
   const downloadAudio = async (url, filename) => {
+    // The app runs in the user's own browser, so the File System Access API
+    // gives a real native save dialog in Chromium-based browsers.
     const saveViaPicker = async () => {
       if (!window.showSaveFilePicker) return false;
       try {

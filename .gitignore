@@ -4,6 +4,7 @@
 # runtime artifacts
 data/logs/
 data/output/
+data/browser-profile/
 /__pycache__
 /data/voice-library
 /dist/
