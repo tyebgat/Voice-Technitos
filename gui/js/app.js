@@ -12,6 +12,7 @@
       "aria-label",
       light ? "Switch to dark theme" : "Switch to light theme"
     );
+    document.dispatchEvent(new CustomEvent("themechange", { detail: { theme: name } }));
   };
 
   themeToggle.addEventListener("click", () => {
@@ -23,19 +24,7 @@
   setTheme(document.documentElement.dataset.theme || "dark");
 
   const btnTerminal = document.getElementById("btn-terminal");
-  btnTerminal.addEventListener("click", async () => {
-    const viaBridge =
-      window.pywebview &&
-      window.pywebview.api &&
-      typeof window.pywebview.api.open_terminal_window === "function";
-    if (viaBridge) {
-      try {
-        await window.pywebview.api.open_terminal_window();
-        return;
-      } catch (err) {
-        console.error("Failed to open the terminal window:", err);
-      }
-    }
+  btnTerminal.addEventListener("click", () => {
     window.open("/terminal", "_blank", "noopener");
   });
 
@@ -138,19 +127,7 @@
 
   const openExternal = (url) => {
     if (!url) return;
-    if (
-      window.pywebview &&
-      window.pywebview.api &&
-      typeof window.pywebview.api.open_external === "function"
-    ) {
-      try {
-        window.pywebview.api.open_external(url);
-      } catch (err) {
-        console.error("Failed to open external link:", err);
-      }
-    } else {
-      window.open(url, "_blank", "noopener");
-    }
+    window.open(url, "_blank", "noopener");
   };
 
   btnCredits.addEventListener("click", openCreditsModal);
@@ -238,22 +215,10 @@
       } catch (err) {
         console.error("Failed to save settings before closing:", err);
       }
-      const viaBridge =
-        window.pywebview &&
-        window.pywebview.api &&
-        typeof window.pywebview.api.close_application === "function";
-      if (viaBridge) {
-        try {
-          await window.pywebview.api.close_application();
-        } catch (err) {
-          console.error("Failed to close the application:", err);
-        }
-      } else {
-        try {
-          await apiFetch("/api/shutdown", { method: "POST" });
-        } catch (err) {
-          /* the app may close before the response arrives */
-        }
+      try {
+        await apiFetch("/api/shutdown", { method: "POST" });
+      } catch (err) {
+        /* the server exits before the response arrives */
       }
     });
 
@@ -363,9 +328,10 @@
   const escapeHtml = (s) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  const updateCharCount = () => {
-    const len = (editor.innerText || "").length;
-    charCount.textContent = `${len} ${len === 1 ? "character" : "characters"}`;
+  const updateCharCount = (text) => {
+    charCount.textContent = `${text.length} ${
+      text.length === 1 ? "character" : "characters"
+    }`;
   };
 
   const buildHtml = (text) => {
@@ -382,31 +348,75 @@
       last = m.index + token.length;
     }
     html += escaped.slice(last);
+    // A newline is stored as a <br>. That is what innerText reports back as
+    // "\n" under white-space: pre-wrap, so the round trip through render() is
+    // lossless.
     return html.replace(/\n/g, "<br>");
+  };
+
+  // When the [tag] tokens change the editor's DOM is rebuilt to re-highlight
+  // them, which destroys the caret. To put it back we translate between DOM
+  // points and offsets in the plain text, where a <br> counts as one character
+  // (the newline it renders as).
+  const walkContent = () => {
+    const walker = document.createTreeWalker(
+      editor,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT
+    );
+    const nodes = [];
+    let pos = 0;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.nodeType !== Node.TEXT_NODE && node.nodeName !== "BR") continue;
+      const len = node.nodeType === Node.TEXT_NODE ? node.length : 1;
+      nodes.push({ node, start: pos, len });
+      pos += len;
+    }
+    return nodes;
+  };
+
+  const totalOf = (nodes) =>
+    nodes.length ? nodes[nodes.length - 1].start + nodes[nodes.length - 1].len : 0;
+
+  // Which child of `container` holds `node`, or -1 if it is not inside.
+  // Needed because a highlighted tag puts the caret's container inside a
+  // <span>, not directly under the editor.
+  const childIndexIn = (node, container) => {
+    let n = node;
+    while (n.parentNode && n.parentNode !== container) n = n.parentNode;
+    return n.parentNode === container
+      ? Array.prototype.indexOf.call(container.childNodes, n)
+      : -1;
   };
 
   const captureOffsets = () => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return null;
     const range = sel.getRangeAt(0);
-    const mapping = [];
-    const walker = document.createTreeWalker(
-      editor,
-      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT
-    );
-    let pos = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (node.nodeType !== Node.TEXT_NODE && node.nodeName !== "BR") continue;
-      const len = node.nodeType === Node.TEXT_NODE ? node.length : 1;
-      mapping.push({ node, start: pos, len });
-      pos += len;
-    }
+    const nodes = walkContent();
+    const total = totalOf(nodes);
+
+    // Next to a line break the caret is not in a text node: its container is
+    // an element and the offset is a child index. Both shapes must resolve.
     const locate = (container, offset) => {
-      const entry = mapping.find((m) => m.node === container);
-      if (!entry) return pos;
-      return entry.start + Math.min(Math.max(0, offset), entry.len);
+      if (container.nodeType === Node.TEXT_NODE) {
+        const entry = nodes.find((n) => n.node === container);
+        return entry
+          ? entry.start + Math.min(Math.max(0, offset), entry.len)
+          : total;
+      }
+      const wanted = Math.min(
+        Math.max(0, offset),
+        container.childNodes.length
+      );
+      for (const entry of nodes) {
+        const i = childIndexIn(entry.node, container);
+        if (i >= wanted) return entry.start;
+      }
+      // Past the last child: the caret belongs at the very end.
+      return total;
     };
+
     return {
       start: locate(range.startContainer, range.startOffset),
       end: locate(range.endContainer, range.endOffset),
@@ -416,45 +426,62 @@
   const restoreOffsets = (offsets) => {
     const sel = window.getSelection();
     if (!sel) return;
+    const nodes = walkContent();
+    const total = totalOf(nodes);
+
+    const pointAt = (offset) => {
+      const want = Math.min(Math.max(0, offset), total);
+      for (const entry of nodes) {
+        if (want > entry.start + entry.len) continue;
+        if (entry.node.nodeType === Node.TEXT_NODE)
+          return [entry.node, want - entry.start];
+        // A <br> has no children, so an offset inside it throws IndexSizeError.
+        // Anchor on the parent's child list, on the correct side of the break.
+        const parent = entry.node.parentNode;
+        const i = Array.prototype.indexOf.call(parent.childNodes, entry.node);
+        return [parent, want > entry.start ? i + 1 : i];
+      }
+      return [editor, editor.childNodes.length];
+    };
+
+    const [startNode, startOffset] = pointAt(offsets.start);
+    const [endNode, endOffset] = pointAt(offsets.end);
     const range = document.createRange();
-    let start = null;
-    let end = null;
-    const walker = document.createTreeWalker(
-      editor,
-      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT
-    );
-    let pos = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (node.nodeType !== Node.TEXT_NODE && node.nodeName !== "BR") continue;
-      const len = node.nodeType === Node.TEXT_NODE ? node.length : 1;
-      if (start === null && offsets.start <= pos + len) {
-        start = [node, Math.min(len, Math.max(0, offsets.start - pos))];
-      }
-      if (end === null && offsets.end <= pos + len) {
-        end = [node, Math.min(len, Math.max(0, offsets.end - pos))];
-      }
-      if (start && end) break;
-      pos += len;
-    }
-    if (start) range.setStart(start[0], start[1]);
-    else range.setStart(editor, 0);
-    if (end) range.setEnd(end[0], end[1]);
-    else range.collapse(true);
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
     sel.removeAllRanges();
     sel.addRange(range);
   };
 
-  const render = () => {
+  // The [tag] tokens are the only thing the rebuild has to fix up: every other
+  // character is plain text that the browser has already put in the DOM itself.
+  // While the user types ordinary characters the token list does not change, so
+  // rewriting innerHTML would recreate every node, force a reflow and throw the
+  // caret away, all to produce markup identical to what is already there.
+  const tokenSignature = (text) => (text.match(TAG_PATTERN) || []).join("\u0000");
+
+  // render() is the only writer of the editor's content, so this cannot go stale
+  // behind our back. null means "nothing rendered yet".
+  let lastSignature = null;
+
+  const render = (text) => {
+    const signature = tokenSignature(text);
+    if (signature === lastSignature) return;
+    lastSignature = signature;
+
     const offsets =
       document.activeElement === editor ? captureOffsets() : null;
-    editor.innerHTML = buildHtml(editor.innerText);
+    editor.innerHTML = buildHtml(text);
     if (offsets) restoreOffsets(offsets);
   };
 
   const update = () => {
-    updateCharCount();
-    render();
+    // Read the text once and pass it on. innerText forces a synchronous layout,
+    // so asking for it twice per keystroke costs a second layout flush for
+    // nothing.
+    const text = editor.innerText || "";
+    updateCharCount(text);
+    render(text);
   };
 
   let composing = false;
@@ -494,9 +521,20 @@
     if (!sel || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
     range.deleteContents();
-    const node = document.createTextNode(text);
-    range.insertNode(node);
-    range.setStartAfter(node);
+    // Insert a <br> per newline rather than one text node containing "\n",
+    // because render() no longer rebuilds the DOM to normalise it.
+    text.split("\n").forEach((part, i) => {
+      if (i > 0) {
+        const br = document.createElement("br");
+        range.insertNode(br);
+        range.setStartAfter(br);
+      }
+      if (part) {
+        const node = document.createTextNode(part);
+        range.insertNode(node);
+        range.setStartAfter(node);
+      }
+    });
     range.collapse(true);
     sel.removeAllRanges();
     sel.addRange(range);
@@ -1169,6 +1207,7 @@
   let tipTimer = null;
   let tipSeq = 0;
   let tipIdx = 0;
+  let bootInitStart = 0;
 
   const showView = (view) => {
     [setupView, initView].forEach((v) =>
@@ -1254,13 +1293,23 @@
     showView(view);
   };
 
-  const updateDownloadBar = (visible, pct) => {
+  const updateDownloadBar = (visible, pct, text) => {
     if (!bootDownload) return;
     bootDownload.hidden = !visible;
     const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
     if (bootDownloadBar) bootDownloadBar.style.width = `${clamped}%`;
     if (bootDownloadText)
-      bootDownloadText.textContent = `Downloading ${Math.floor(clamped)}%`;
+      bootDownloadText.textContent = text ?? `Downloading ${Math.floor(clamped)}%`;
+  };
+
+  // Rough phase-based progress when no real download percentage is reported.
+  const estimatedInitProgress = (status) => {
+    if (status.model_state === "loading") {
+      // Walk 0 -> 90 over ~8 s so the bar feels active without a real number.
+      const elapsed = Math.min(8000, Date.now() - bootInitStart);
+      return Math.max(10, Math.min(90, (elapsed / 8000) * 90));
+    }
+    return 0;
   };
 
   const updateBootStatus = (status) => {
@@ -1273,8 +1322,8 @@
       setBootStatus(`Downloading ${display} model files…`);
       return;
     }
-    updateDownloadBar(false);
     if (status.model_state === "ready") {
+      updateDownloadBar(true, 100, "Ready");
       stopPolling();
       stopLoaderCycle();
       stopTipCycle();
@@ -1286,6 +1335,7 @@
       return;
     }
     if (status.model_state === "error") {
+      updateDownloadBar(false);
       stopLoaderCycle();
       stopTipCycle();
       setBootStatus(`Failed to initialize ${display}`);
@@ -1293,6 +1343,7 @@
       bootRetry.hidden = false;
       return;
     }
+    updateDownloadBar(true, estimatedInitProgress(status), "Initializing...");
     setBootStatus(`Initializing ${display}`);
   };
 
@@ -1313,6 +1364,7 @@
 
   const startInit = (service) => {
     displayBootView(initView);
+    bootInitStart = Date.now();
     setBootStatus(
       service ? `Initializing ${displayName(service)}` : "setting up your service..."
     );
@@ -1728,56 +1780,312 @@
     playerPlay.classList.toggle("playing", playing);
   };
 
-  const drawWaveform = async (url) => {
-    try {
-      playerWave.classList.add("loading");
-      const res = await fetch(url);
-      const buffer = await res.arrayBuffer();
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuf = await ctx.decodeAudioData(buffer);
-      const data = audioBuf.getChannelData(0);
-      const dpr = window.devicePixelRatio || 1;
-      const cssW = playerWave.clientWidth || 300;
-      const cssH = playerWave.clientHeight || 40;
-      playerWave.width = Math.max(1, Math.round(cssW * dpr));
-      playerWave.height = Math.max(1, Math.round(cssH * dpr));
-      const g = playerWave.getContext("2d");
-      const color =
-        getComputedStyle(document.documentElement)
-          .getPropertyValue("--text")
-          .trim() || "#E4E4E7";
-      const barCount = Math.max(48, Math.floor(playerWave.width / 4));
-      const step = Math.max(1, Math.floor(data.length / barCount));
-      const midY = playerWave.height / 2;
-      g.clearRect(0, 0, playerWave.width, playerWave.height);
-      g.strokeStyle = color;
-      g.lineWidth = Math.max(1, dpr * 2);
-      g.beginPath();
-      for (let i = 0; i < barCount; i++) {
-        let peak = 0;
-        const start = i * step;
-        const end = Math.min(start + step, data.length);
-        for (let j = start; j < end; j++) {
-          const v = Math.abs(data[j] || 0);
-          if (v > peak) peak = v;
-        }
-        const amp = Math.max(g.lineWidth, peak * (playerWave.height * 0.92) * 0.5);
-        const x = (i + 0.5) * (playerWave.width / barCount);
-        g.moveTo(x, midY - amp);
-        g.lineTo(x, midY + amp);
-      }
-      g.stroke();
-      ctx.close();
-    } catch (err) {
-      console.error("Failed to draw waveform:", err);
-    } finally {
-      playerWave.classList.remove("loading");
+  const togglePlayback = () => {
+    if (playerAudio.paused) {
+      playerAudio.play().catch(() => {});
+      setPlayIcon(true);
+    } else {
+      playerAudio.pause();
+      setPlayIcon(false);
     }
   };
+
+  // Binds a canvas to an audio element so the drawn waveform doubles as a
+  // seekable progress bar: the whole shape is painted in grey, then the played
+  // part is repainted in the fill colour clipped to the current position.
+  // Shared by the generation player and the history cards.
+  const createWaveProgress = (canvas, audio) => {
+    const WAVE_SAMPLES = 1200;
+    let peaks = [];
+    let bars = [];
+    let progress = 0;
+    let dragging = false;
+    let frame = 0;
+    let observer = null;
+
+    const readColors = () => {
+      const cs = getComputedStyle(canvas);
+      return {
+        base: cs.getPropertyValue("--wave-base").trim() || "#8A8A8F",
+        fill: cs.getPropertyValue("--wave-fill").trim() || "#FFFFFF",
+      };
+    };
+
+    // Turns the peak envelope into one bar height per rendered column, so the
+    // same audio can be redrawn at any canvas width (panel resize, splitter).
+    const buildBars = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = canvas.clientWidth || canvas.getBoundingClientRect().width || 300;
+      const cssH = canvas.clientHeight || canvas.getBoundingClientRect().height || 34;
+      const w = Math.max(1, Math.round(cssW * dpr));
+      const h = Math.max(1, Math.round(cssH * dpr));
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      if (!peaks.length) {
+        bars = [];
+        return;
+      }
+
+      const barCount = Math.max(48, Math.floor(w / 4));
+      const next = new Array(barCount);
+      const step = peaks.length / barCount;
+      for (let i = 0; i < barCount; i++) {
+        const start = Math.floor(i * step);
+        const end = Math.max(start + 1, Math.floor((i + 1) * step));
+        let peak = 0;
+        for (let j = start; j < end && j < peaks.length; j++) {
+          if (peaks[j] > peak) peak = peaks[j];
+        }
+        next[i] = peak;
+      }
+      bars = next;
+    };
+
+    const render = () => {
+      if (!bars.length) return;
+      const g = canvas.getContext("2d");
+      const { base, fill } = readColors();
+      const w = canvas.width;
+      const h = canvas.height;
+      const lineWidth = Math.max(1, (window.devicePixelRatio || 1) * 2);
+      const midY = h / 2;
+      const colW = w / bars.length;
+
+      const stroke = (color) => {
+        g.strokeStyle = color;
+        g.lineWidth = lineWidth;
+        g.beginPath();
+        for (let i = 0; i < bars.length; i++) {
+          const amp = Math.max(lineWidth, bars[i] * h * 0.92 * 0.5);
+          const x = (i + 0.5) * colW;
+          g.moveTo(x, midY - amp);
+          g.lineTo(x, midY + amp);
+        }
+        g.stroke();
+      };
+
+      g.clearRect(0, 0, w, h);
+      stroke(base);
+
+      const played = Math.max(0, Math.min(1, progress));
+      if (played <= 0) return;
+      g.save();
+      g.beginPath();
+      g.rect(0, 0, w * played, h);
+      g.clip();
+      stroke(fill);
+      g.restore();
+    };
+
+    const sync = () => {
+      const duration = audio.duration;
+      const next =
+        Number.isFinite(duration) && duration > 0
+          ? Math.min(1, Math.max(0, audio.currentTime / duration))
+          : 0;
+      const percent = Math.round(next * 100);
+      const attr = String(percent);
+      if (canvas.getAttribute("aria-valuenow") !== attr) {
+        canvas.setAttribute("aria-valuenow", attr);
+      }
+      if (Math.abs(next - progress) < 0.0005) return;
+      progress = next;
+      render();
+    };
+
+    // timeupdate only fires a few times a second, so the fill would visibly
+    // step. Drive it off requestAnimationFrame while audio is playing instead.
+    const stopLoop = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+    };
+
+    const runLoop = () => {
+      stopLoop();
+      const tick = () => {
+        sync();
+        frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
+    };
+
+    const clear = () => {
+      stopLoop();
+      peaks = [];
+      bars = [];
+      progress = 0;
+      const g = canvas.getContext("2d");
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.setAttribute("aria-valuenow", "0");
+    };
+
+    const load = async (url) => {
+      try {
+        const res = await fetch(url);
+        const buffer = await res.arrayBuffer();
+        const actx = new (window.AudioContext || window.webkitAudioContext)();
+        const decoded = await actx.decodeAudioData(buffer);
+        const data = decoded.getChannelData(0);
+        const step = Math.max(1, Math.floor(data.length / WAVE_SAMPLES));
+        const next = new Array(Math.ceil(data.length / step));
+        for (let i = 0; i < next.length; i++) {
+          const start = i * step;
+          const end = Math.min(start + step, data.length);
+          let peak = 0;
+          for (let j = start; j < end; j++) {
+            const v = Math.abs(data[j] || 0);
+            if (v > peak) peak = v;
+          }
+          next[i] = peak;
+        }
+        actx.close();
+        peaks = next;
+        buildBars();
+        // sync() skips painting when progress has not moved, so paint the idle
+        // grey wave explicitly.
+        sync();
+        render();
+      } catch (err) {
+        console.error("Failed to draw waveform:", err);
+        clear();
+      }
+    };
+
+    const seekToRatio = (ratio) => {
+      const duration = audio.duration;
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      audio.currentTime = Math.min(1, Math.max(0, ratio)) * duration;
+      sync();
+    };
+
+    const seekFromPointer = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width) return;
+      seekToRatio((e.clientX - rect.left) / rect.width);
+    };
+
+    const onPointerDown = (e) => {
+      if (!bars.length || e.button !== 0) return;
+      e.preventDefault();
+      dragging = true;
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Synthetic or already-released pointers cannot be captured; dragging
+        // still works through the window-level listeners.
+      }
+      seekFromPointer(e);
+    };
+
+    const onPointerMove = (e) => {
+      if (dragging) seekFromPointer(e);
+    };
+
+    const onPointerEnd = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      if (e && canvas.hasPointerCapture && canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+    };
+
+    const onKeyDown = (e) => {
+      const duration = audio.duration;
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        if (audio.paused) audio.play().catch(() => {});
+        else audio.pause();
+        return;
+      }
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      const nudge = e.shiftKey ? 10 : 5;
+      if (e.key === "ArrowRight") {
+        seekToRatio((audio.currentTime + nudge) / duration);
+      } else if (e.key === "ArrowLeft") {
+        seekToRatio((audio.currentTime - nudge) / duration);
+      } else if (e.key === "Home") {
+        seekToRatio(0);
+      } else if (e.key === "End") {
+        seekToRatio(1);
+      } else {
+        return;
+      }
+      e.preventDefault();
+    };
+
+    // window-level so a drag that leaves the canvas still tracks the pointer.
+    const onWindowMove = (e) => {
+      if (dragging) seekFromPointer(e);
+    };
+
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerup", onPointerEnd);
+    canvas.addEventListener("pointercancel", onPointerEnd);
+    canvas.addEventListener("lostpointercapture", onPointerEnd);
+    canvas.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointermove", onWindowMove);
+    window.addEventListener("pointerup", onPointerEnd);
+    window.addEventListener("pointercancel", onPointerEnd);
+
+    const onAudioEvent = () => sync();
+    audio.addEventListener("play", runLoop);
+    ["timeupdate", "seeked", "loadedmetadata", "emptied"].forEach((evt) =>
+      audio.addEventListener(evt, onAudioEvent)
+    );
+    audio.addEventListener("pause", () => {
+      stopLoop();
+      sync();
+    });
+    audio.addEventListener("ended", () => {
+      stopLoop();
+      sync();
+    });
+
+    // Colours are baked into the canvas, so a theme swap needs a repaint.
+    const onThemeChange = () => {
+      if (bars.length) render();
+    };
+    document.addEventListener("themechange", onThemeChange);
+
+    // Keep the bar count in step with the canvas box (panel/splitter/resize).
+    const onResize = () => {
+      if (!peaks.length) return;
+      buildBars();
+      render();
+    };
+    if (window.ResizeObserver) {
+      observer = new ResizeObserver(onResize);
+      observer.observe(canvas);
+    } else {
+      window.addEventListener("resize", onResize);
+    }
+
+    return {
+      load,
+      clear,
+      sync,
+      render,
+      stopLoop,
+      seekToRatio,
+      destroy() {
+        stopLoop();
+        if (observer) observer.disconnect();
+        else window.removeEventListener("resize", onResize);
+        document.removeEventListener("themechange", onThemeChange);
+        window.removeEventListener("pointermove", onWindowMove);
+        window.removeEventListener("pointerup", onPointerEnd);
+        window.removeEventListener("pointercancel", onPointerEnd);
+      },
+    };
+  };
+
+  const playerWaveProgress = createWaveProgress(playerWave, playerAudio);
 
   const showPlayerLoading = () => {
     playerAudio.pause();
     playerAudio.removeAttribute("src");
+    playerWaveProgress.clear();
     playerWidget.classList.add("loading");
     if (playerWidget.hidden) {
       playerWidget.hidden = false;
@@ -1790,6 +2098,7 @@
   const hidePlayer = () => {
     playerAudio.pause();
     playerAudio.removeAttribute("src");
+    playerWaveProgress.clear();
     playerWidget.classList.remove("visible", "loading");
     setTimeout(() => {
       playerWidget.hidden = true;
@@ -1804,7 +2113,8 @@
       playerDownload.href = url;
       playerDownload.download = filename;
       setPlayIcon(false);
-      drawWaveform(url);
+      playerWaveProgress.clear();
+      playerWaveProgress.load(url);
       playerWidget.hidden = false;
       requestAnimationFrame(() => playerWidget.classList.add("visible"));
     };
@@ -1816,19 +2126,15 @@
     }
   };
 
-  playerPlay.addEventListener("click", () => {
-    if (playerAudio.paused) {
-      playerAudio.play().catch(() => {});
-      setPlayIcon(true);
-    } else {
-      playerAudio.pause();
-      setPlayIcon(false);
-    }
-  });
+  playerPlay.addEventListener("click", togglePlayback);
 
+  // The wave progress binding owns playback listeners; this only keeps the
+  // button icon in step when a track runs to its end.
   playerAudio.addEventListener("ended", () => setPlayIcon(false));
 
   const downloadAudio = async (url, filename) => {
+    // The app runs in the user's own browser, so the File System Access API
+    // gives a real native save dialog in Chromium-based browsers.
     const saveViaPicker = async () => {
       if (!window.showSaveFilePicker) return false;
       try {
@@ -1940,7 +2246,53 @@
     if (historyPlaying && historyPlaying.audio) {
       historyPlaying.audio.pause();
       setHistoryPlayState(historyPlaying.btn, historyPlaying.icon, false);
+      collapseHistoryWave(historyPlaying);
       historyPlaying = null;
+    }
+  }
+
+// ---------- History card waveform ----------
+
+  const historyWaves = new WeakMap();
+  const historyWaveLoads = new Map();
+
+  const getHistoryWave = (item, li) => {
+    let wave = historyWaves.get(li);
+    if (wave) return wave;
+
+    const canvas = li.querySelector(".history-item__wave canvas");
+    if (!canvas) return null;
+
+    const audio = li._audio;
+    if (!audio) return null;
+
+    wave = createWaveProgress(canvas, audio);
+    historyWaves.set(li, wave);
+    return wave;
+  };
+
+  function expandHistoryWave(item, li) {
+    li.classList.add("playing");
+    const wave = getHistoryWave(item, li);
+    if (!wave) return;
+
+    if (!historyWaveLoads.has(item.url)) {
+      historyWaveLoads.set(item.url, true);
+      wave.load(item.url);
+    } else {
+      wave.sync();
+      wave.render();
+    }
+  }
+
+  function collapseHistoryWave(entry) {
+    if (!entry) return;
+    const targetLi = entry.li || (entry.filename ? historyList.querySelector(`[data-filename="${CSS.escape(entry.filename)}"]`) : null);
+    if (targetLi) {
+      targetLi.classList.remove("playing");
+    }
+    if (entry.wave) {
+      entry.wave.stopLoop();
     }
   }
 
@@ -2040,6 +2392,17 @@
     play.appendChild(playIcon);
     play.setAttribute("aria-label", "Play");
 
+    const waveWrap = document.createElement("div");
+    waveWrap.className = "history-item__wave";
+    const waveCanvas = document.createElement("canvas");
+    waveCanvas.setAttribute("role", "slider");
+    waveCanvas.setAttribute("tabindex", "0");
+    waveCanvas.setAttribute("aria-label", "Seek in audio");
+    waveCanvas.setAttribute("aria-valuemin", "0");
+    waveCanvas.setAttribute("aria-valuemax", "100");
+    waveCanvas.setAttribute("aria-valuenow", "0");
+    waveWrap.appendChild(waveCanvas);
+
     const download = document.createElement("button");
     download.type = "button";
     download.className = "history-item__download";
@@ -2052,6 +2415,7 @@
     play.addEventListener("click", () =>
       playHistoryAudio(item, li, play, playIcon)
     );
+
     download.addEventListener("click", (e) => {
       e.stopPropagation();
       logEvent("download", item.filename);
@@ -2060,7 +2424,18 @@
 
     actions.append(play, download);
     bottom.append(time, actions);
-    li.append(top, meta, bottom);
+    li.append(top, meta, bottom, waveWrap);
+
+    // Reattach playing state if this card was active before DOM re-render
+    if (historyPlaying && historyPlaying.filename === item.filename) {
+      li._audio = historyPlaying.audio;
+      historyPlaying.btn = play;
+      historyPlaying.icon = playIcon;
+      historyPlaying.li = li;
+      setHistoryPlayState(play, playIcon, true);
+      expandHistoryWave(item, li);
+      historyPlaying.wave = getHistoryWave(item, li);
+    }
 
     li.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -2074,37 +2449,67 @@
   }
 
   function playHistoryAudio(item, li, btn, icon) {
-    li._audio = li._audio || new Audio(item.url);
+    if (!li._audio) {
+      li._audio = new Audio(item.url);
+      // Keep the element in the document so Chrome does not abort play()
+      // with AbortError: "media was removed from the document".
+      li._audio.hidden = true;
+      li._audio.preload = "auto";
+      li.appendChild(li._audio);
+    }
     const audio = li._audio;
+
+    // Ensure the waveform binding exists early so it catches the "play" event.
+    const wave = getHistoryWave(item, li);
+
     audio.onended = () => {
-      if (historyPlaying && historyPlaying.audio === audio) historyPlaying = null;
       setHistoryPlayState(btn, icon, false);
+      if (historyPlaying && historyPlaying.audio === audio) {
+        collapseHistoryWave(historyPlaying);
+        historyPlaying = null;
+      }
     };
-    audio.onerror = () => setHistoryPlayState(btn, icon, false);
+
+    audio.onerror = () => {
+      setHistoryPlayState(btn, icon, false);
+      if (historyPlaying && historyPlaying.audio === audio) {
+        collapseHistoryWave(historyPlaying);
+        historyPlaying = null;
+      }
+    };
 
     if (historyPlaying && historyPlaying.audio && historyPlaying.audio !== audio) {
       historyPlaying.audio.pause();
       setHistoryPlayState(historyPlaying.btn, historyPlaying.icon, false);
+      collapseHistoryWave(historyPlaying);
       historyPlaying = null;
     }
 
     if (audio.paused) {
+      // Optimistic UI: assume play will succeed, update button & expand wave now.
+      logEvent("play", item.filename);
+      setHistoryPlayState(btn, icon, true);
+      expandHistoryWave(item, li);
+
       audio
         .play()
         .then(() => {
-          logEvent("play", item.filename);
-          setHistoryPlayState(btn, icon, true);
-          historyPlaying = { btn, icon, audio };
+          historyPlaying = { btn, icon, audio, li, wave, filename: item.filename };
         })
         .catch((err) => {
           console.error("Failed to play history audio:", err);
+          // Revert on failure.
           setHistoryPlayState(btn, icon, false);
+          collapseHistoryWave({ li });
         });
     } else {
       audio.pause();
       logEvent("pause", item.filename);
       setHistoryPlayState(btn, icon, false);
-      if (historyPlaying && historyPlaying.audio === audio) historyPlaying = null;
+      if (historyPlaying && historyPlaying.audio === audio) {
+        collapseHistoryWave(historyPlaying);
+        historyPlaying = null;
+      }
     }
   }
 

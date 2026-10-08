@@ -1,15 +1,23 @@
 import os
+import shutil
 import socket
-import tempfile
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 from loguru import logger
 
 from logging_setup import setup_logging
+from paths import BASE_PATH
 from settings import Settings
 
 HOST = "127.0.0.1"
+
+# Directory the browser uses as its profile. Keeping it under data/ (rather
+# than a temp dir) means Chromium remembers the window size between launches.
+PROFILE_DIRNAME = "browser-profile"
 
 
 def get_free_port(preferred: int) -> int:
@@ -35,24 +43,156 @@ def wait_for_server(host: str, port: int, timeout: float = 30.0) -> bool:
     return False
 
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# ── Browser discovery ──────────────────────────────────────────────────────────
+# Ordered by preference. Chromium-based browsers get real app mode (no tabs,
+# no address bar); Firefox has no equivalent and gets a plain window instead.
+BROWSERS = [
+    # (display name, is_chromium, Windows candidates, POSIX candidates)
+    (
+        "Microsoft Edge",
+        True,
+        [
+            r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+            r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+        ],
+        ["microsoft-edge", "microsoft-edge-stable"],
+    ),
+    (
+        "Google Chrome",
+        True,
+        [
+            r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+            r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+            r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
+        ],
+        ["google-chrome-stable", "google-chrome", "chrome"],
+    ),
+    (
+        "Chromium",
+        True,
+        [r"%LOCALAPPDATA%\Chromium\Application\chrome.exe"],
+        ["chromium", "chromium-browser"],
+    ),
+    (
+        "Brave",
+        True,
+        [
+            r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe",
+        ],
+        ["brave-browser", "brave"],
+    ),
+    (
+        "Firefox",
+        False,
+        [
+            r"%ProgramFiles%\Mozilla Firefox\firefox.exe",
+            r"%ProgramFiles(x86%)\Mozilla Firefox\firefox.exe",
+        ],
+        ["firefox"],
+    ),
+    (
+        "LibreWolf",
+        False,
+        [r"%LOCALAPPDATA%\LibreWolf\librewolf.exe"],
+        ["librewolf"],
+    ),
+]
 
 
-def build_window_icon() -> str:
-    """Convert icon.png to an .ico WinForms can load; returns the ico path ('' on failure)."""
-    source = os.path.join(APP_DIR, "icon.png")
-    if not os.path.isfile(source):
-        return ""
+def _expand_win_path(raw: str) -> str:
+    return os.path.expandvars(os.path.expanduser(raw))
+
+
+def find_browser():
+    """Return ``(display_name, is_chromium, executable_path)`` or ``None``.
+
+    Checks each browser's well-known install paths before falling back to PATH,
+    because Chromium installs are not always on PATH on Windows.
+    """
+    if sys.platform == "win32":
+        for name, is_chromium, win_paths, _posix in BROWSERS:
+            for raw in win_paths:
+                path = _expand_win_path(raw)
+                if path and os.path.isfile(path):
+                    return name, is_chromium, path
+        for name, is_chromium, _, posix in BROWSERS:
+            found = shutil.which(posix[0]) or shutil.which(posix[-1])
+            if found:
+                return name, is_chromium, found
+    else:
+        for name, is_chromium, _, posix in BROWSERS:
+            for binary in posix:
+                found = shutil.which(binary)
+                if found:
+                    return name, is_chromium, found
+        # Common Linux locations that are not on PATH (snap/flatpak/manual).
+        for name, is_chromium, _, posix in BROWSERS:
+            for base in posix:
+                for extra in (
+                    f"/opt/{base}/bin/{base}",
+                    f"/usr/lib/{base}/{base}",
+                    f"/snap/bin/{base}",
+                    f"/var/lib/flatpak/exports/bin/{base}",
+                    f"/usr/bin/{base}",
+                ):
+                    if os.path.isfile(extra) and os.access(extra, os.X_OK):
+                        return name, is_chromium, extra
+    return None
+
+
+def launch_browser(url: str, width: int, height: int, log=None):
+    """Open ``url`` in the best available browser and return the Popen, or None.
+
+    Falls back to the system default browser as a plain tab when none of the
+    preferred browsers are installed.
+    """
+    log = log or logger
+    found = find_browser()
+
+    if found is None:
+        import webbrowser
+
+        log.warning("No supported browser found; opening the system default browser.")
+        try:
+            webbrowser.open(url, new=2)
+        except Exception as exc:
+            log.exception(f"Could not open a browser: {exc}")
+            return None
+        return None
+
+    name, is_chromium, exe = found
+    log.info(f"Opening {url} in {name} (app mode).")
+
+    if is_chromium:
+        profile = Path(BASE_PATH) / "data" / PROFILE_DIRNAME
+        profile.mkdir(parents=True, exist_ok=True)
+        # A dedicated --user-data-dir is required: without it, launching
+        # Chromium while it is already running just opens a tab in the existing
+        # instance and silently ignores --app.
+        args = [
+            exe,
+            f"--app={url}",
+            f"--user-data-dir={profile}",
+            f"--window-size={width},{height}",
+            # Suppress the first-run wizard a fresh profile would otherwise show.
+            "--no-first-run",
+            "--no-default-browser-check",
+        ]
+    else:
+        # Firefox has no --app mode; a dedicated window is the closest equivalent.
+        args = [exe, "--new-window", url]
+
     try:
-        from PIL import Image
-
-        target = os.path.join(tempfile.gettempdir(), "voice-technitos-icon.ico")
-        with Image.open(source) as img:
-            img.save(target, format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-        return target
+        return subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     except Exception as exc:
-        logger.warning(f"Could not build window icon from {source}: {exc}")
-        return ""
+        log.exception(f"Failed to launch {name}: {exc}")
+        return None
 
 
 def start_backend(host: str, port: int):
@@ -75,62 +215,8 @@ def start_backend(host: str, port: int):
         raise
 
 
-class Bridge:
-    """JS bridge exposed to the GUI (via pywebview js_api)."""
-
-    port = None  # injected at startup so the bridge knows the server URL
-
-    def close_application(self):
-        import webview
-
-        try:
-            if webview.windows:
-                webview.windows[0].destroy()
-                logger.info("Application window closed from the GUI.")
-        except Exception as exc:
-            logger.error(f"Failed to close the window: {exc}")
-
-    def open_external(self, url: str):
-        import webbrowser
-
-        try:
-            webbrowser.open(url, new=2)
-        except Exception as exc:
-            logger.error(f"Failed to open {url}: {exc}")
-
-    def open_terminal_window(self):
-        import threading
-
-        import webview
-
-        def _create():
-            try:
-                win = getattr(self, "_terminal_window", None)
-                if win is not None and not win.events.closed.is_set():
-                    try:
-                        win.restore()
-                        win.focus()
-                    except Exception:
-                        pass
-                    return
-                url = f"http://{HOST}:{getattr(self, 'port', 8078)}/terminal"
-                win = webview.create_window(
-                    "Voice Technitos - Terminal",
-                    url=url,
-                    width=780,
-                    height=560,
-                    min_size=(480, 320),
-                )
-                win.events.closed += lambda: setattr(self, "_terminal_window", None)
-                self._terminal_window = win
-                logger.info(f"Opened terminal window ({url}).")
-            except Exception as exc:
-                logger.error(f"Failed to open the terminal window: {exc}")
-
-        threading.Thread(target=_create, name="terminal-window", daemon=True).start()
-
-
 def main():
+    proc = None
     try:
         settings = Settings()
         setup_logging(
@@ -144,7 +230,8 @@ def main():
         port = get_free_port(int(preferred_port))
         if port != preferred_port:
             logger.warning(f"Port {preferred_port} busy; using {port} instead.")
-        logger.info(f"Starting Voice Technitos backend at http://{HOST}:{port}")
+        url = f"http://{HOST}:{port}"
+        logger.info(f"Starting Voice Technitos backend at {url}")
 
         server_thread = threading.Thread(
             target=start_backend, args=(HOST, port), daemon=True, name="uvicorn-backend"
@@ -155,23 +242,28 @@ def main():
             logger.error("Backend did not become reachable in time. Aborting.")
             return
 
-        import webview
-
-        logger.info("Opening desktop window (pywebview)...")
-        webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
-        bridge = Bridge()
-        bridge.port = port
-        webview.create_window(
-            "Voice Technitos",
-            url=f"http://{HOST}:{port}",
-            width=int(settings.get("window_width", 900)),
-            height=int(settings.get("window_height", 720)),
-            min_size=(640, 480),
-            js_api=bridge,
+        proc = launch_browser(
+            url,
+            int(settings.get("window_width", 900)),
+            int(settings.get("window_height", 720)),
         )
-        webview.start(gui="edgechromium", icon=build_window_icon() or None)
 
-        logger.info("Window closed; shutting down.")
+        # There is no window object to block on any more, so hold the process
+        # open until either the GUI posts /api/shutdown (which calls os._exit
+        # itself) or the user closes the browser window.
+        if proc is not None:
+            logger.info("Waiting for the browser window to close...")
+            while proc.poll() is None:
+                time.sleep(0.5)
+            logger.info("Browser closed; shutting down.")
+            os._exit(0)
+        else:
+            # Default-browser fallback: nothing to watch, so just stay alive
+            # and let /api/shutdown end the process.
+            while True:
+                time.sleep(1.0)
+    except KeyboardInterrupt:
+        logger.info("Interrupted; shutting down.")
     except Exception as e:
         logger.exception(f"Application failed to start: {e}")
         raise

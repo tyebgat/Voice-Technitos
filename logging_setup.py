@@ -52,5 +52,13 @@ def setup_logging(
         try:
             logger.exception(f"Failed to configure logging: {e}")
         except Exception:
-            print(f"FATAL: failed to configure logging: {e}")
+            # Last resort. In a windowed (console=False) build sys.stdout and
+            # sys.stderr are both None, so printing would raise and mask the
+            # real failure.
+            stream = sys.stderr or sys.stdout
+            if stream is not None:
+                try:
+                    stream.write(f"FATAL: failed to configure logging: {e}\n")
+                except Exception:
+                    pass
         raise

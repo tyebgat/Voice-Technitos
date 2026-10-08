@@ -126,9 +126,6 @@ class Settings:
     def _defaults_path(self, section: str) -> str:
         return os.path.join(self.backup_dir, BACKUP_FILES[section])
 
-    def defaults_path(self, section: str = "general") -> str:
-        return self._defaults_path(section)
-
     # ── loading ──────────────────────────────────────────────────────────────
     def _load_or_generate_defaults(self, section: str) -> dict:
         path = self._defaults_path(section)

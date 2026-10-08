@@ -598,8 +598,6 @@ def _history_items() -> list:
 
         items = []
         for name in files:
-            path = os.path.join(OUTPUT_DIR, name)
-
             m = OUTPUT_NAME_RE.match(name)
             if m:
                 voice_name = m.group(1).rstrip()

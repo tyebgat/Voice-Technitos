@@ -553,8 +553,8 @@ body {
 
 .player-widget {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 24px;
+  right: 24px;
   bottom: 84px;
   z-index: 20;
   height: 80px;
@@ -617,11 +617,22 @@ body {
 .player-widget__download:hover { background: var(--hover); }
 
 .player-widget__wave {
+  /* Unplayed part of the waveform; --wave-fill is drawn on top for progress. */
+  --wave-base: var(--muted);
+  --wave-fill: var(--accent);
   flex: 1 1 auto;
   width: 100%;
   height: 40px;
   min-width: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  touch-action: none;
   transition: opacity 0.2s ease;
+}
+
+.player-widget__wave:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .player-widget__wave.loading { opacity: 0.4; }
@@ -835,16 +846,12 @@ body {
   border: 1px solid var(--separator);
   border-radius: 14px;
   background: var(--select-bg, var(--bg));
+  transition: background 0.15s ease;
 }
 
 .history-item:last-child { margin-bottom: 0; }
 
-.history-item {
-  transition: transform 0.15s ease, background 0.15s ease;
-}
-
 .history-item:hover {
-  transform: scale(1.02);
   background: var(--hover);
 }
 
@@ -927,6 +934,39 @@ body {
 
 .history-item__play.playing { background: var(--btn-bg); color: var(--btn-text); }
 
+/* ---------- History waveform (expands when playing) ---------- */
+
+.history-item__wave {
+  --wave-base: var(--muted);
+  --wave-fill: var(--accent);
+  overflow: hidden;
+  height: 0;
+  opacity: 0;
+  transition:
+    height 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.22s ease,
+    margin-top 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.history-item.playing .history-item__wave {
+  height: 38px;
+  margin-top: 6px;
+  opacity: 1;
+}
+
+.history-item__wave canvas {
+  display: block;
+  width: 100%;
+  height: 38px;
+  border-radius: 4px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.history-item__wave canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .history-empty {
   margin-top: 22px;
   font-size: 14px;

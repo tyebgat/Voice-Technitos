@@ -6,10 +6,12 @@
 fastapi>=0.115.0          # REST API for the web UI
 uvicorn[standard]>=0.32.0 # ASGI server + websockets/live reload
 python-multipart>=0.0.20  # handle audio file uploads (reference.wav)
-requests>=2.32.0
 
 # ── Desktop GUI ────────────────────────────────────────────────────────────
-pywebview>=5.3.2          # wrap the FastAPI web UI in a native window
+# No windowing toolkit is bundled. The GUI is plain HTML/CSS/JS served by
+# FastAPI and opened in app mode in whatever browser the user already has
+# (Edge / Chrome / Chromium / Brave / Firefox / LibreWolf), so there is no
+# embedded-WebView runtime to ship or to keep in sync.
 
 # ── Local TTS (OmniVoice) ──────────────────────────────────────────────────
 # OmniVoice requires an NVIDIA GPU with CUDA 12.8+ (no CPU support without
@@ -31,7 +33,6 @@ pocket-tts>=3.1.0
 numpy>=2.3.0
 scipy>=1.15.0
 soundfile>=0.13.0         # read/write reference.wav and generated audio
-sounddevice>=0.5.0        # live playback
 
 # ── Logging ────────────────────────────────────────────────────────────────
 loguru>=0.7.3             # logs to console and rotating file
