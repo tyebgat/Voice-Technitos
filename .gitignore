@@ -1,5 +1,4 @@
 *.ps1
-*.spec
 
 # runtime artifacts
 data/logs/
